@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign in — NavDhan Console</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="auth-shell">
+  <div class="auth-brand">
+    <div class="auth-brand-mark">NavDhan Mutual Fund Services</div>
+    <div>
+      <h1>The investor ledger, kept current.</h1>
+      <p>Sign in with the credentials issued to you. New here? Ask an administrator to invite you, or submit a registration request.</p>
+    </div>
+    <div class="auth-brand-footer">Investor &amp; transaction records — role-gated access</div>
+  </div>
+
+  <div class="auth-form-side">
+    <div class="auth-card">
+      <div class="eyebrow">Console access</div>
+      <h2>Sign in</h2>
+      <p class="sub">Enter the username and password issued to your account.</p>
+
+      <div id="alert" class="alert"></div>
+
+      <form id="loginForm">
+        <div class="field">
+          <label for="username">Username</label>
+          <input id="username" name="username" type="text" autocomplete="username" required>
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+        </div>
+        <button class="btn btn-gold btn-block" type="submit" id="submitBtn">Sign in</button>
+      </form>
+
+      <div class="auth-links">
+        <a href="register.html">Request an account</a>
+        <a href="forgot-password.html">Forgot password?</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+  // Already signed in? Skip straight past the login form.
+  if (Session.isLoggedIn()) {
+    window.location.href = Session.mustChangePassword() ? "change-password.html" : "dashboard.html";
+  }
+
+  const form = document.getElementById("loginForm");
+  const alertEl = document.getElementById("alert");
+  const submitBtn = document.getElementById("submitBtn");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    hideAlert(alertEl);
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Signing in…";
+
+    const username = document.getElementById("username").value.trim();
+    const password = document.getElementById("password").value;
+
+    try {
+      const body = new URLSearchParams({ username, password });
+      const result = await apiFetch("/login", { method: "POST", body, form: true, auth: false });
+      Session.set({
+        access_token: result.access_token,
+        role: result.role,
+        username,
+        force_password_change: result.force_password_change,
+      });
+      window.location.href = result.force_password_change ? "change-password.html" : "dashboard.html";
+    } catch (err) {
+      showAlert(alertEl, err.message);
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Sign in";
+    }
+  });
+</script>
+</body>
+</html>

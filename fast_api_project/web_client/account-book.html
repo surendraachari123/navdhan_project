@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Investor Account Book — NavDhan Console</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <main class="main">
+    <div class="topbar">
+      <h1>Investor Account Book</h1>
+      <span class="stamp" id="roleStamp"></span>
+    </div>
+
+    <div id="alert" class="alert"></div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>Select Investor</h2>
+          <p class="card-sub">View complete account book with SIP/Lumpsum breakdown and performance metrics</p>
+        </div>
+      </div>
+      <form id="lookupForm" class="form-grid" style="align-items:end;">
+        <div class="field" style="margin-bottom:0; flex:2;">
+          <label for="lookupId">Investor ID</label>
+          <input id="lookupId" class="mono" placeholder="e.g., INV001" required>
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <button class="btn btn-gold" type="submit">Load Account Book</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="accountBookSection" style="display:none;">
+      <!-- Investor Info -->
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <h2 id="investorName"></h2>
+            <p class="card-sub" id="investorMeta"></p>
+          </div>
+          <div style="display:flex; gap:10px;">
+            <a href="account-book-3d.html?investor_id=" id="link3d" class="btn btn-gold btn-sm">3D View</a>
+            <a href="transactions.html" class="btn btn-secondary btn-sm">View Transactions</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Key Metrics -->
+      <div class="card">
+        <div class="card-head">
+          <h2>Portfolio Summary</h2>
+        </div>
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap:16px;">
+          <div style="background: linear-gradient(135deg, #f7f3e9 0%, #e8dcc0 100%); padding:20px; border-radius:12px; border:1px solid var(--gold);">
+            <div style="color:var(--ink-soft); font-size:13px; margin-bottom:6px;">Total Invested</div>
+            <div style="font-size:28px; font-weight:700; color:var(--ink);" id="totalInvested">₹0</div>
+            <div style="color:var(--ink-soft); font-size:12px; margin-top:4px;" id="investedBreakdown"></div>
+          </div>
+          <div style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); padding:20px; border-radius:12px; border:1px solid #0ea5e9;">
+            <div style="color:var(--ink-soft); font-size:13px; margin-bottom:6px;">Total Redeemed</div>
+            <div style="font-size:28px; font-weight:700; color:var(--ink);" id="totalRedeemed">₹0</div>
+          </div>
+          <div style="background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); padding:20px; border-radius:12px; border:1px solid #22c55e;">
+            <div style="color:var(--ink-soft); font-size:13px; margin-bottom:6px;">Net Investment</div>
+            <div style="font-size:28px; font-weight:700; color:var(--ink);" id="netInvestment">₹0</div>
+          </div>
+          <div style="background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); padding:20px; border-radius:12px; border:1px solid #f59e0b;">
+            <div style="color:var(--ink-soft); font-size:13px; margin-bottom:6px;">Total Transactions</div>
+            <div style="font-size:28px; font-weight:700; color:var(--ink);" id="totalTransactions">0</div>
+            <div style="color:var(--ink-soft); font-size:12px; margin-top:4px;" id="txnCountBreakdown"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Charts Row -->
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap:18px;">
+        <!-- SIP vs Lumpsum Pie Chart -->
+        <div class="card">
+          <div class="card-head">
+            <h2>SIP vs Lumpsum Breakdown</h2>
+          </div>
+          <div style="padding:20px; height:320px; position:relative;">
+            <canvas id="sipLumpsumChart"></canvas>
+          </div>
+          <div style="padding:0 20px 20px; display:flex; gap:20px; justify-content:center;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <div style="width:12px; height:12px; background:#d9b54c; border-radius:50%;"></div>
+              <span style="font-size:13px;">SIP: <strong id="sipAmount">₹0</strong></span>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <div style="width:12px; height:12px; background:#8b7355; border-radius:50%;"></div>
+              <span style="font-size:13px;">Lumpsum (Purchase): <strong id="lumpsumAmount">₹0</strong></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Transaction Type Distribution -->
+        <div class="card">
+          <div class="card-head">
+            <h2>Transaction Type Distribution</h2>
+          </div>
+          <div style="padding:20px; height:320px; position:relative;">
+            <canvas id="txnTypeChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Monthly Trend Chart -->
+      <div class="card">
+        <div class="card-head">
+          <h2>Monthly Investment Trend</h2>
+          <p class="card-sub">SIP and Lumpsum investments over time</p>
+        </div>
+        <div style="padding:20px; height:350px; position:relative;">
+          <canvas id="monthlyTrendChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Scheme-wise Investment -->
+      <div class="card">
+        <div class="card-head">
+          <h2>Scheme-wise Investment</h2>
+          <p class="card-sub">Breakdown by mutual fund scheme</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Scheme ID</th>
+                <th>Total Invested</th>
+                <th>SIP Amount</th>
+                <th>Lumpsum Amount</th>
+                <th>Redeemed</th>
+                <th>Net</th>
+                <th>Transactions</th>
+              </tr>
+            </thead>
+            <tbody id="schemeRows"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Transaction History -->
+      <div class="card">
+        <div class="card-head">
+          <h2>Complete Transaction History</h2>
+          <p class="card-sub">Account book ledger</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Folio ID</th>
+                <th>Scheme ID</th>
+                <th>Type</th>
+                <th>Units</th>
+                <th>NAV (₹)</th>
+                <th>Amount (₹)</th>
+                <th>Balance Impact</th>
+              </tr>
+            </thead>
+            <tbody id="ledgerRows"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+  const authOk = requireAuth();
+  document.getElementById("roleStamp").textContent = Session.role();
+  document.getElementById("roleStamp").className = `stamp ${stampClass(Session.role())}`;
+
+  const alertEl = document.getElementById("alert");
+  const accountBookSection = document.getElementById("accountBookSection");
+
+  let sipLumpsumChart = null;
+  let txnTypeChart = null;
+  let monthlyTrendChart = null;
+
+  function formatCurrency(amount) {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      maximumFractionDigits: 0
+    }).format(amount || 0);
+  }
+
+  function calculateAccountBook(transactions) {
+    let totalInvested = 0;
+    let totalRedeemed = 0;
+    let sipAmount = 0;
+    let lumpsumAmount = 0;
+    let purchaseCount = 0;
+    let sipCount = 0;
+    let redemptionCount = 0;
+
+    transactions.forEach(t => {
+      const amount = parseFloat(t.amount) || 0;
+      if (t.txn_type === 'PURCHASE') {
+        totalInvested += amount;
+        lumpsumAmount += amount;
+        purchaseCount++;
+      } else if (t.txn_type === 'SIP') {
+        totalInvested += amount;
+        sipAmount += amount;
+        sipCount++;
+      } else if (t.txn_type === 'REDEMPTION') {
+        totalRedeemed += amount;
+        redemptionCount++;
+      }
+    });
+
+    const netInvestment = totalInvested - totalRedeemed;
+
+    return {
+      totalInvested,
+      totalRedeemed,
+      netInvestment,
+      sipAmount,
+      lumpsumAmount,
+      purchaseCount,
+      sipCount,
+      redemptionCount,
+      totalCount: transactions.length
+    };
+  }
+
+  function renderCharts(metrics, transactions) {
+    // Destroy existing charts
+    if (sipLumpsumChart) sipLumpsumChart.destroy();
+    if (txnTypeChart) txnTypeChart.destroy();
+    if (monthlyTrendChart) monthlyTrendChart.destroy();
+
+    // SIP vs Lumpsum Pie Chart
+    const sipLumpsumCtx = document.getElementById('sipLumpsumChart').getContext('2d');
+    sipLumpsumChart = new Chart(sipLumpsumCtx, {
+      type: 'doughnut',
+      data: {
+        labels: ['SIP', 'Lumpsum (Purchase)'],
+        datasets: [{
+          data: [metrics.sipAmount, metrics.lumpsumAmount],
+          backgroundColor: ['#d9b54c', '#8b7355'],
+          borderWidth: 2,
+          borderColor: '#fff'
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: false
+          },
+          title: {
+            display: true,
+            text: 'Investment Type Split'
+          }
+        }
+      }
+    });
+
+    // Transaction Type Distribution
+    const txnTypeCtx = document.getElementById('txnTypeChart').getContext('2d');
+    txnTypeChart = new Chart(txnTypeCtx, {
+      type: 'bar',
+      data: {
+        labels: ['SIP', 'Purchase', 'Redemption'],
+        datasets: [{
+          label: 'Number of Transactions',
+          data: [metrics.sipCount, metrics.purchaseCount, metrics.redemptionCount],
+          backgroundColor: ['#d9b54c', '#8b7355', '#ef4444'],
+          borderRadius: 8
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: false
+          },
+          title: {
+            display: true,
+            text: 'Transaction Count by Type'
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: {
+              stepSize: 1
+            }
+          }
+        }
+      }
+    });
+
+    // Monthly Trend
+    const monthlyData = {};
+    transactions.forEach(t => {
+      if (t.txn_type === 'REDEMPTION') return;
+      const date = new Date(t.txn_date);
+      const monthKey = date.toLocaleDateString('en-IN', { year: 'numeric', month: 'short' });
+      if (!monthlyData[monthKey]) {
+        monthlyData[monthKey] = { sip: 0, lumpsum: 0 };
+      }
+      const amount = parseFloat(t.amount) || 0;
+      if (t.txn_type === 'SIP') {
+        monthlyData[monthKey].sip += amount;
+      } else if (t.txn_type === 'PURCHASE') {
+        monthlyData[monthKey].lumpsum += amount;
+      }
+    });
+
+    const sortedMonths = Object.keys(monthlyData).sort((a, b) => {
+      return new Date(a) - new Date(b);
+    });
+
+    const monthlyTrendCtx = document.getElementById('monthlyTrendChart').getContext('2d');
+    monthlyTrendChart = new Chart(monthlyTrendCtx, {
+      type: 'bar',
+      data: {
+        labels: sortedMonths,
+        datasets: [
+          {
+            label: 'SIP',
+            data: sortedMonths.map(m => monthlyData[m].sip),
+            backgroundColor: '#d9b54c',
+            borderRadius: 6
+          },
+          {
+            label: 'Lumpsum',
+            data: sortedMonths.map(m => monthlyData[m].lumpsum),
+            backgroundColor: '#8b7355',
+            borderRadius: 6
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'top',
+          },
+          title: {
+            display: true,
+            text: 'Monthly Investment Trend'
+          }
+        },
+        scales: {
+          x: {
+            stacked: false,
+          },
+          y: {
+            beginAtZero: true,
+            ticks: {
+              callback: function(value) {
+                return '₹' + (value / 1000) + 'K';
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  function renderSchemeWise(transactions) {
+    const schemeData = {};
+    transactions.forEach(t => {
+      const scheme = t.scheme_id;
+      if (!schemeData[scheme]) {
+        schemeData[scheme] = {
+          invested: 0,
+          sip: 0,
+          lumpsum: 0,
+          redeemed: 0,
+          count: 0
+        };
+      }
+      const amount = parseFloat(t.amount) || 0;
+      schemeData[scheme].count++;
+      if (t.txn_type === 'SIP') {
+        schemeData[scheme].sip += amount;
+        schemeData[scheme].invested += amount;
+      } else if (t.txn_type === 'PURCHASE') {
+        schemeData[scheme].lumpsum += amount;
+        schemeData[scheme].invested += amount;
+      } else if (t.txn_type === 'REDEMPTION') {
+        schemeData[scheme].redeemed += amount;
+      }
+    });
+
+    const rows = Object.keys(schemeData).map(scheme => {
+      const s = schemeData[scheme];
+      const net = s.invested - s.redeemed;
+      return `
+        <tr>
+          <td class="mono">${scheme}</td>
+          <td class="mono">${formatCurrency(s.invested)}</td>
+          <td class="mono">${formatCurrency(s.sip)}</td>
+          <td class="mono">${formatCurrency(s.lumpsum)}</td>
+          <td class="mono">${formatCurrency(s.redeemed)}</td>
+          <td class="mono" style="font-weight:600; color:${net >= 0 ? '#16a34a' : '#dc2626'}">${formatCurrency(net)}</td>
+          <td>${s.count}</td>
+        </tr>
+      `;
+    }).join('');
+
+    document.getElementById('schemeRows').innerHTML = rows || '<tr><td colspan="7" style="text-align:center;">No data</td></tr>';
+  }
+
+  function renderLedger(transactions) {
+    // Sort by date
+    const sorted = [...transactions].sort((a, b) => new Date(a.txn_date) - new Date(b.txn_date));
+    
+    let runningBalance = 0;
+    const rows = sorted.map(t => {
+      const amount = parseFloat(t.amount) || 0;
+      if (t.txn_type === 'REDEMPTION') {
+        runningBalance -= amount;
+        return `
+          <tr>
+            <td>${formatDate(t.txn_date)}</td>
+            <td class="mono">${t.folio_id}</td>
+            <td class="mono">${t.scheme_id}</td>
+            <td><span style="color:#dc2626; font-weight:600;">REDEMPTION</span></td>
+            <td class="mono">${t.units}</td>
+            <td class="mono">${t.nav}</td>
+            <td class="mono" style="color:#dc2626;">- ${formatCurrency(amount)}</td>
+            <td class="mono" style="font-weight:600;">${formatCurrency(runningBalance)}</td>
+          </tr>
+        `;
+      } else {
+        runningBalance += amount;
+        return `
+          <tr>
+            <td>${formatDate(t.txn_date)}</td>
+            <td class="mono">${t.folio_id}</td>
+            <td class="mono">${t.scheme_id}</td>
+            <td><span style="color:${t.txn_type === 'SIP' ? '#d9b54c' : '#8b7355'}; font-weight:600;">${t.txn_type}</span></td>
+            <td class="mono">${t.units}</td>
+            <td class="mono">${t.nav}</td>
+            <td class="mono" style="color:#16a34a;">+ ${formatCurrency(amount)}</td>
+            <td class="mono" style="font-weight:600;">${formatCurrency(runningBalance)}</td>
+          </tr>
+        `;
+      }
+    }).join('');
+
+    document.getElementById('ledgerRows').innerHTML = rows || '<tr><td colspan="8" style="text-align:center;">No transactions</td></tr>';
+  }
+
+  async function loadAccountBook(investorId) {
+    hideAlert(alertEl);
+    try {
+      console.log('Loading account book for:', investorId);
+      const data = await apiFetch(`/investors/${encodeURIComponent(investorId)}/transactions`);
+      console.log('Data received:', data);
+      
+      if (!data) {
+        throw new Error('No data received');
+      }
+      
+      document.getElementById("investorName").textContent = data.name || investorId;
+      document.getElementById("investorMeta").textContent =
+        `${data.investor_id || investorId} • ${data.email || ''} • ${data.mobile || ''} • KYC: ${data.kyc_status || ''} • PAN: ${data.pan || ''}`;
+      const link3d = document.getElementById('link3d');
+      if (link3d) link3d.href = 'account-book-3d.html?investor_id=' + encodeURIComponent(investorId);
+      
+      const transactions = data.transactions || [];
+      console.log('Transactions:', transactions.length);
+      
+      const metrics = calculateAccountBook(transactions);
+      console.log('Metrics:', metrics);
+      
+      // Update metrics
+      document.getElementById("totalInvested").textContent = formatCurrency(metrics.totalInvested);
+      document.getElementById("investedBreakdown").textContent = 
+        `SIP: ${formatCurrency(metrics.sipAmount)} • Lumpsum: ${formatCurrency(metrics.lumpsumAmount)}`;
+      document.getElementById("totalRedeemed").textContent = formatCurrency(metrics.totalRedeemed);
+      document.getElementById("netInvestment").textContent = formatCurrency(metrics.netInvestment);
+      document.getElementById("totalTransactions").textContent = metrics.totalCount;
+      document.getElementById("txnCountBreakdown").textContent = 
+        `SIP: ${metrics.sipCount} • Purchase: ${metrics.purchaseCount} • Redemption: ${metrics.redemptionCount}`;
+      
+      document.getElementById("sipAmount").textContent = formatCurrency(metrics.sipAmount);
+      document.getElementById("lumpsumAmount").textContent = formatCurrency(metrics.lumpsumAmount);
+      
+      // Render charts and tables
+      if (transactions.length > 0) {
+        renderCharts(metrics, transactions);
+        renderSchemeWise(transactions);
+        renderLedger(transactions);
+      } else {
+        document.getElementById('schemeRows').innerHTML = '<tr><td colspan="7" style="text-align:center;">No transactions</td></tr>';
+        document.getElementById('ledgerRows').innerHTML = '<tr><td colspan="8" style="text-align:center;">No transactions</td></tr>';
+      }
+      
+      accountBookSection.style.display = "block";
+      accountBookSection.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (err) {
+      console.error('Error loading account book:', err);
+      showAlert(alertEl, err.message);
+    }
+  }
+
+  document.getElementById("lookupForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const id = document.getElementById("lookupId").value.trim();
+    if (id) loadAccountBook(id);
+  });
+
+  function init() {
+    renderSidebar("account-book.html");
+    const params = new URLSearchParams(window.location.search);
+    const investorId = params.get("investor_id");
+    if (investorId) {
+      document.getElementById("lookupId").value = investorId;
+      loadAccountBook(investorId);
+    }
+  }
+
+  if (authOk) init();
+</script>
+</body>
+</html>

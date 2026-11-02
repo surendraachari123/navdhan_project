@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Investor Account Book - Tree Structure — NavDhan Console</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .tree-container {
+    background: linear-gradient(180deg, #0f0f23 0%, #1a1a2e 100%);
+    border-radius: 12px;
+    padding: 40px;
+    overflow: auto;
+    min-height: 600px;
+    position: relative;
+  }
+  .tree {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .tree-node {
+    background: linear-gradient(135deg, #d9b54c 0%, #b8943a 100%);
+    color: white;
+    padding: 12px 24px;
+    border-radius: 10px;
+    margin: 10px;
+    box-shadow: 0 4px 15px rgba(217, 181, 76, 0.4);
+    cursor: pointer;
+    transition: all 0.3s;
+    text-align: center;
+    min-width: 200px;
+  }
+  .tree-node:hover {
+    transform: scale(1.05);
+    box-shadow: 0 6px 20px rgba(217, 181, 76, 0.6);
+  }
+  .tree-node.investor {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    font-size: 18px;
+    font-weight: 700;
+    min-width: 250px;
+  }
+  .tree-node.sip {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  }
+  .tree-node.lumpsum {
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  }
+  .tree-node.redemption {
+    background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+  }
+  .tree-node.scheme {
+    background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+  }
+  .tree-children {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 20px;
+    margin-top: 30px;
+    position: relative;
+  }
+  .tree-branch {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+  }
+  .connector {
+    width: 2px;
+    height: 30px;
+    background: #d9b54c;
+    margin: 0 auto;
+  }
+  .horizontal-connector {
+    height: 2px;
+    background: #d9b54c;
+    position: absolute;
+    top: -15px;
+  }
+</style>
+</head>
+<body>
+
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <main class="main">
+    <div class="topbar">
+      <h1>Investor Account Book - Tree Structure</h1>
+      <span class="stamp" id="roleStamp"></span>
+    </div>
+
+    <div id="alert" class="alert"></div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>Select Investor</h2>
+          <p class="card-sub">Hierarchical tree view of investments</p>
+        </div>
+        <a href="account-book.html" class="btn btn-secondary btn-sm">Switch to 2D View</a>
+      </div>
+      <form id="lookupForm" class="form-grid" style="align-items:end;">
+        <div class="field" style="margin-bottom:0; flex:2;">
+          <label for="lookupId">Investor ID</label>
+          <input id="lookupId" class="mono" placeholder="e.g., INV001" required>
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <button class="btn btn-gold" type="submit">Load Tree View</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="accountBookSection" style="display:none;">
+      <div class="card">
+        <div class="card-head">
+          <h2>Investment Hierarchy Tree</h2>
+        </div>
+        <div class="tree-container">
+          <div class="tree" id="treeView"></div>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:12px;">
+        <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding:16px; border-radius:10px; color:white;">
+          <div style="font-size:12px; opacity:0.9;">SIP Count</div>
+          <div style="font-size:22px; font-weight:700;" id="sipCount">0</div>
+          <div style="font-size:14px; margin-top:4px;" id="sipAmt">₹0</div>
+        </div>
+        <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); padding:16px; border-radius:10px; color:white;">
+          <div style="font-size:12px; opacity:0.9;">Lumpsum Count</div>
+          <div style="font-size:22px; font-weight:700;" id="lumpCount">0</div>
+          <div style="font-size:14px; margin-top:4px;" id="lumpAmt">₹0</div>
+        </div>
+        <div style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); padding:16px; border-radius:10px; color:white;">
+          <div style="font-size:12px; opacity:0.9;">Schemes</div>
+          <div style="font-size:22px; font-weight:700;" id="schemeCount">0</div>
+        </div>
+        <div style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); padding:16px; border-radius:10px; color:white;">
+          <div style="font-size:12px; opacity:0.9;">Net Investment</div>
+          <div style="font-size:22px; font-weight:700;" id="netInv">₹0</div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+  const authOk = requireAuth();
+  document.getElementById("roleStamp").textContent = Session.role();
+  document.getElementById("roleStamp").className = `stamp ${stampClass(Session.role())}`;
+
+  const alertEl = document.getElementById("alert");
+  const accountBookSection = document.getElementById("accountBookSection");
+  const treeView = document.getElementById("treeView");
+
+  function formatCurrency(amount) {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      maximumFractionDigits: 0
+    }).format(amount || 0);
+  }
+
+  function buildTree(data) {
+    const transactions = data.transactions || [];
+    
+    let sipCount = 0, lumpCount = 0, sipAmt = 0, lumpAmt = 0, redeemAmt = 0;
+    const schemes = {};
+    
+    transactions.forEach(t => {
+      const amount = parseFloat(t.amount) || 0;
+      if (!schemes[t.scheme_id]) {
+        schemes[t.scheme_id] = { sip: [], lumpsum: [], redemption: [] };
+      }
+      if (t.txn_type === 'SIP') {
+        sipCount++; sipAmt += amount;
+        schemes[t.scheme_id].sip.push({ amount, date: t.txn_date, units: t.units, folio: t.folio_id });
+      } else if (t.txn_type === 'PURCHASE') {
+        lumpCount++; lumpAmt += amount;
+        schemes[t.scheme_id].lumpsum.push({ amount, date: t.txn_date, units: t.units, folio: t.folio_id });
+      } else if (t.txn_type === 'REDEMPTION') {
+        redeemAmt += amount;
+        schemes[t.scheme_id].redemption.push({ amount, date: t.txn_date, units: t.units });
+      }
+    });
+    
+    document.getElementById('sipCount').textContent = sipCount;
+    document.getElementById('lumpCount').textContent = lumpCount;
+    document.getElementById('schemeCount').textContent = Object.keys(schemes).length;
+    document.getElementById('sipAmt').textContent = formatCurrency(sipAmt);
+    document.getElementById('lumpAmt').textContent = formatCurrency(lumpAmt);
+    document.getElementById('netInv').textContent = formatCurrency(sipAmt + lumpAmt - redeemAmt);
+    
+    let html = `
+      <div class="tree-branch">
+        <div class="tree-node investor">
+          👤 ${data.name}<br>
+          <small>${data.investor_id}</small><br>
+          <small>KYC: ${data.kyc_status}</small>
+        </div>
+        <div class="connector"></div>
+        <div class="tree-children">
+    `;
+    
+    Object.keys(schemes).forEach((schemeId, idx) => {
+      const s = schemes[schemeId];
+      html += `
+        <div class="tree-branch">
+          <div class="tree-node scheme">
+            🏛️ Scheme<br>
+            <small>${schemeId}</small><br>
+            <small>Net: ${formatCurrency(s.sip.reduce((a,b)=>a+b.amount,0) + s.lumpsum.reduce((a,b)=>a+b.amount,0) - s.redemption.reduce((a,b)=>a+b.amount,0))}</small>
+          </div>
+          <div class="connector"></div>
+          <div style="display:flex; flex-direction:column; gap:10px;">
+      `;
+      
+      if (s.sip.length > 0) {
+        html += `
+          <div class="tree-node sip">
+            💰 SIP (${s.sip.length})<br>
+            <small>${formatCurrency(s.sip.reduce((a,b)=>a+b.amount,0))}</small>
+          </div>
+        `;
+      }
+      
+      if (s.lumpsum.length > 0) {
+        html += `
+          <div class="tree-node lumpsum">
+            💵 Lumpsum (${s.lumpsum.length})<br>
+            <small>${formatCurrency(s.lumpsum.reduce((a,b)=>a+b.amount,0))}</small>
+          </div>
+        `;
+      }
+      
+      if (s.redemption.length > 0) {
+        html += `
+          <div class="tree-node redemption">
+            🔻 Redemption (${s.redemption.length})<br>
+            <small>${formatCurrency(s.redemption.reduce((a,b)=>a+b.amount,0))}</small>
+          </div>
+        `;
+      }
+      
+      html += `
+          </div>
+        </div>
+      `;
+    });
+    
+    html += `
+        </div>
+      </div>
+    `;
+    
+    treeView.innerHTML = html;
+  }
+
+  async function loadAccountBook(investorId) {
+    hideAlert(alertEl);
+    try {
+      const data = await apiFetch(`/investors/${encodeURIComponent(investorId)}/transactions`);
+      buildTree(data);
+      accountBookSection.style.display = "block";
+      accountBookSection.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (err) {
+      showAlert(alertEl, err.message);
+    }
+  }
+
+  document.getElementById("lookupForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const id = document.getElementById("lookupId").value.trim();
+    if (id) loadAccountBook(id);
+  });
+
+  function init() {
+    renderSidebar("account-book-tree.html");
+    const params = new URLSearchParams(window.location.search);
+    const investorId = params.get("investor_id");
+    if (investorId) {
+      document.getElementById("lookupId").value = investorId;
+      loadAccountBook(investorId);
+    }
+  }
+
+  if (authOk) init();
+</script>
+</body>
+</html>

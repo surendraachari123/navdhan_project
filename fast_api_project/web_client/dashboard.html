@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Investors — NavDhan Console</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <main class="main">
+    <div class="topbar">
+      <h1>Investors</h1>
+      <span class="stamp" id="roleStamp"></span>
+    </div>
+
+    <div id="alert" class="alert"></div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>All investors</h2>
+          <p class="card-sub">Every investor on record. Click a row's actions to view transactions, edit, or (admin only) remove.</p>
+        </div>
+        <button class="btn btn-gold btn-sm" id="newInvestorBtn">+ New investor</button>
+      </div>
+
+      <div id="listState" class="skeleton-loading">Loading investors…</div>
+      <div class="table-wrap" id="tableWrap" style="display:none;">
+        <table>
+          <thead>
+            <tr>
+              <th>Investor ID</th><th>Name</th><th>Email</th><th>Mobile</th><th>KYC</th><th>PAN</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="investorRows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Create / edit form, hidden until requested -->
+    <div class="card" id="formCard" style="display:none;">
+      <div class="card-head">
+        <h2 id="formTitle">New investor</h2>
+        <button class="btn btn-secondary btn-sm" id="cancelFormBtn">Cancel</button>
+      </div>
+      <form id="investorForm">
+        <div class="form-grid">
+          <div class="field">
+            <label for="investor_id">Investor ID</label>
+            <input id="investor_id" class="mono" required>
+          </div>
+          <div class="field">
+            <label for="name">Name</label>
+            <input id="name" required>
+          </div>
+          <div class="field">
+            <label for="email">Email</label>
+            <input id="email" type="email" required>
+          </div>
+          <div class="field">
+            <label for="mobile">Mobile</label>
+            <input id="mobile" required>
+          </div>
+          <div class="field">
+            <label for="kyc_status">KYC status</label>
+            <select id="kyc_status">
+              <option>Verified</option>
+              <option>Pending</option>
+              <option>Rejected</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="pan">PAN</label>
+            <input id="pan" class="mono" placeholder="ABCDE1234F" required>
+          </div>
+        </div>
+        <button class="btn btn-gold" type="submit" id="saveBtn">Save investor</button>
+      </form>
+    </div>
+  </main>
+</div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+  const authOk = requireAuth();
+  const isAdmin = Session.role() === "admin";
+  document.getElementById("roleStamp").textContent = Session.role();
+  document.getElementById("roleStamp").className = `stamp ${stampClass(Session.role())}`;
+
+  const alertEl = document.getElementById("alert");
+  const listState = document.getElementById("listState");
+  const tableWrap = document.getElementById("tableWrap");
+  const rowsEl = document.getElementById("investorRows");
+  const formCard = document.getElementById("formCard");
+  const form = document.getElementById("investorForm");
+  const formTitle = document.getElementById("formTitle");
+  const investorIdField = document.getElementById("investor_id");
+
+  let editingId = null; // null = creating new
+
+  function openForm(investor) {
+    editingId = investor ? investor.investor_id : null;
+    formTitle.textContent = investor ? `Edit ${investor.investor_id}` : "New investor";
+    investorIdField.value = investor ? investor.investor_id : "";
+    investorIdField.disabled = !!investor; // investor_id is the PK - not editable on PUT
+    document.getElementById("name").value = investor ? investor.name : "";
+    document.getElementById("email").value = investor ? investor.email : "";
+    document.getElementById("mobile").value = investor ? investor.mobile : "";
+    document.getElementById("kyc_status").value = investor ? investor.kyc_status : "Pending";
+    document.getElementById("pan").value = investor ? investor.pan : "";
+    formCard.style.display = "block";
+    formCard.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  document.getElementById("newInvestorBtn").addEventListener("click", () => openForm(null));
+  document.getElementById("cancelFormBtn").addEventListener("click", () => (formCard.style.display = "none"));
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    hideAlert(alertEl);
+    const saveBtn = document.getElementById("saveBtn");
+    saveBtn.disabled = true;
+
+    const payload = {
+      investor_id: investorIdField.value.trim(),
+      name: document.getElementById("name").value.trim(),
+      email: document.getElementById("email").value.trim(),
+      mobile: document.getElementById("mobile").value.trim(),
+      kyc_status: document.getElementById("kyc_status").value,
+      pan: document.getElementById("pan").value.trim().toUpperCase(),
+    };
+
+    try {
+      if (editingId) {
+        await apiFetch(`/investors/${editingId}`, { method: "PUT", body: payload });
+        showAlert(alertEl, `Investor ${editingId} updated.`, "success");
+      } else {
+        await apiFetch("/investors", { method: "POST", body: payload });
+        showAlert(alertEl, `Investor ${payload.investor_id} created.`, "success");
+      }
+      formCard.style.display = "none";
+      loadInvestors();
+    } catch (err) {
+      showAlert(alertEl, err.message);
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+
+  async function deleteInvestor(id) {
+    if (!confirm(`Delete investor ${id}? This cannot be undone.`)) return;
+    try {
+      await apiFetch(`/investors/${id}`, { method: "DELETE" });
+      showAlert(alertEl, `Investor ${id} deleted.`, "success");
+      loadInvestors();
+    } catch (err) {
+      showAlert(alertEl, err.message);
+    }
+  }
+
+  function renderRows(investors) {
+    if (investors.length === 0) {
+      tableWrap.style.display = "none";
+      listState.style.display = "block";
+      listState.className = "empty-state";
+      listState.innerHTML = `<div class="glyph">—</div>No investors on record yet.`;
+      return;
+    }
+    listState.style.display = "none";
+    tableWrap.style.display = "block";
+    rowsEl.innerHTML = investors
+      .map(
+        (inv) => `
+        <tr>
+          <td class="mono">${inv.investor_id}</td>
+          <td>${inv.name}</td>
+          <td>${inv.email}</td>
+          <td class="mono">${inv.mobile}</td>
+          <td><span class="badge ${kycBadgeClass(inv.kyc_status)}">${inv.kyc_status}</span></td>
+          <td class="mono">${inv.pan}</td>
+          <td>
+            <div class="row-actions">
+              <a href="account-book.html?investor_id=${encodeURIComponent(inv.investor_id)}" class="btn btn-gold btn-sm">Account Book</a>
+              <a href="transactions.html?investor_id=${encodeURIComponent(inv.investor_id)}" class="btn btn-secondary btn-sm">Transactions</a>
+              <button class="btn btn-secondary btn-sm" data-edit="${inv.investor_id}">Edit</button>
+              ${isAdmin ? `<button class="btn btn-danger btn-sm" data-delete="${inv.investor_id}">Delete</button>` : ""}
+            </div>
+          </td>
+        </tr>`
+      )
+      .join("");
+
+    rowsEl.querySelectorAll("[data-edit]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        const inv = investors.find((i) => i.investor_id === btn.dataset.edit);
+        openForm(inv);
+      })
+    );
+    rowsEl.querySelectorAll("[data-delete]").forEach((btn) =>
+      btn.addEventListener("click", () => deleteInvestor(btn.dataset.delete))
+    );
+  }
+
+  async function loadInvestors() {
+    hideAlert(alertEl);
+    try {
+      const investors = await apiFetch("/investors");
+      renderRows(investors);
+    } catch (err) {
+      listState.className = "skeleton-loading";
+      listState.textContent = "Could not load investors.";
+      showAlert(alertEl, err.message);
+    }
+  }
+
+  function init() {
+    renderSidebar("dashboard.html");
+    loadInvestors();
+  }
+
+  if (authOk) init();
+</script>
+</body>
+</html>

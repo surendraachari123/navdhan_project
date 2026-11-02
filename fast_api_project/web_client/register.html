@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Request an account — NavDhan Console</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="auth-shell">
+  <div class="auth-brand">
+    <div class="auth-brand-mark">NavDhan Mutual Fund Services</div>
+    <div>
+      <h1>Every new account starts as a request.</h1>
+      <p>An administrator reviews each request and, once approved, emails you a temporary password to sign in with.</p>
+    </div>
+    <div class="auth-brand-footer">Requests are held pending until reviewed</div>
+  </div>
+
+  <div class="auth-form-side">
+    <div class="auth-card">
+      <div class="eyebrow">New account</div>
+      <h2>Request access</h2>
+      <p class="sub">This submits a request only — nothing is created until an admin approves it.</p>
+
+      <div id="alert" class="alert"></div>
+
+      <form id="registerForm">
+        <div class="field">
+          <label for="username">Desired username</label>
+          <input id="username" name="username" type="text" minlength="3" maxlength="50" required>
+        </div>
+        <div class="field">
+          <label for="full_name">Full name</label>
+          <input id="full_name" name="full_name" type="text" required>
+        </div>
+        <div class="field">
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" required>
+        </div>
+        <div class="field">
+          <label for="mobile">Mobile <span style="text-transform:none;font-weight:400;">(optional)</span></label>
+          <input id="mobile" name="mobile" type="tel">
+        </div>
+        <div class="field">
+          <label for="requested_role">Requested role</label>
+          <select id="requested_role" name="requested_role">
+            <option value="user" selected>User</option>
+            <option value="manager">Manager</option>
+            <option value="admin">Admin</option>
+          </select>
+          <div class="hint">Final role is set by whoever approves the request.</div>
+        </div>
+        <div class="field">
+          <label for="reason">Reason <span style="text-transform:none;font-weight:400;">(optional)</span></label>
+          <textarea id="reason" name="reason" maxlength="500" placeholder="Team, purpose, or who referred you"></textarea>
+        </div>
+        <button class="btn btn-gold btn-block" type="submit" id="submitBtn">Submit request</button>
+      </form>
+
+      <div class="auth-links">
+        <a href="login.html">Back to sign in</a>
+        <span></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+  const form = document.getElementById("registerForm");
+  const alertEl = document.getElementById("alert");
+  const submitBtn = document.getElementById("submitBtn");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    hideAlert(alertEl);
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Submitting…";
+
+    const payload = {
+      username: document.getElementById("username").value.trim(),
+      full_name: document.getElementById("full_name").value.trim(),
+      email: document.getElementById("email").value.trim(),
+      mobile: document.getElementById("mobile").value.trim() || null,
+      requested_role: document.getElementById("requested_role").value,
+      reason: document.getElementById("reason").value.trim() || null,
+    };
+
+    try {
+      const result = await apiFetch("/register", { method: "POST", body: payload, auth: false });
+      form.style.display = "none";
+      showAlert(alertEl, result.message || "Request submitted. You'll be emailed once it's reviewed.", "success");
+    } catch (err) {
+      showAlert(alertEl, err.message);
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Submit request";
+    }
+  });
+</script>
+</body>
+</html>

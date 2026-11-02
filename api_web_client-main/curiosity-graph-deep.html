@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Curiosity Graph - Deep Dive</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif; background: #050510; color: #e0e0e0; overflow: hidden; }
+  .graph-container { display: flex; height: 100vh; }
+  .sidebar-graph { width: 340px; background: linear-gradient(180deg, #0f0f23 0%, #050510 100%); border-right: 2px solid #d9b54c; padding: 16px; overflow-y: auto; }
+  .main-graph { flex: 1; position: relative; background: radial-gradient(ellipse at center, #101025 0%, #000000 100%); }
+  #graph-svg { width: 100%; height: 100%; }
+  .header { margin-bottom: 16px; }
+  .header h1 { color: #d9b54c; font-size: 18px; margin-bottom: 4px; }
+  .breadcrumb { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; font-size: 11px; }
+  .crumb { padding: 4px 8px; background: rgba(217,181,76,0.2); border: 1px solid #d9b54c; border-radius: 4px; color: #d9b54c; cursor: pointer; }
+  .crumb:hover { background: rgba(217,181,76,0.4); }
+  .panel { background: rgba(20,20,40,0.8); border: 1px solid rgba(217,181,76,0.4); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+  .panel h3 { color: #d9b54c; font-size: 13px; margin-bottom: 8px; }
+  .panel p { font-size: 11px; line-height: 1.5; color: #c0c0c0; margin-bottom: 6px; }
+  .field-list { font-size: 10px; line-height: 1.4; }
+  .field-list div { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  .btn { width: 100%; padding: 7px; margin-bottom: 5px; background: rgba(217,181,76,0.15); border: 1px solid #d9b54c; color: #d9b54c; border-radius: 6px; cursor: pointer; font-size: 11px; }
+  .btn:hover { background: rgba(217,181,76,0.35); }
+  .node { cursor: pointer; }
+  .node circle { stroke-width: 3px; stroke: #fff; filter: drop-shadow(0 0 10px currentColor); transition: all 0.2s; }
+  .node:hover circle { stroke-width: 4px; filter: drop-shadow(0 0 15px currentColor); }
+  .node text { font-size: 9px; font-weight: 600; fill: #fff; text-shadow: 2px 2px 3px #000; pointer-events: none; }
+  .link { stroke: #d9b54c; stroke-opacity: 0.5; stroke-width: 2px; marker-end: url(#arrow); }
+  .tooltip { position: absolute; background: rgba(5,5,16,0.98); border: 2px solid #d9b54c; border-radius: 8px; padding: 10px; max-width: 280px; pointer-events: none; display: none; z-index: 1000; }
+  .tooltip h4 { color: #d9b54c; margin-bottom: 6px; font-size: 12px; }
+  .tooltip p { font-size: 10px; line-height: 1.4; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<div class="graph-container">
+  <div class="sidebar-graph">
+    <div class="header">
+      <h1>🔍 Deep Dive Curiosity Graph</h1>
+      <p style="font-size:11px; color:#a0a0a0;">Click any node to explore deeper</p>
+    </div>
+    <div class="breadcrumb" id="breadcrumb"></div>
+    <div class="panel" id="nodeInfoPanel">
+      <h3 id="panelTitle">ACCOUNT BOOK</h3>
+      <p id="panelDesc">Click on any node to see detailed information and drill down into its sub-nodes</p>
+      <div id="panelDetails"></div>
+    </div>
+    <div class="panel">
+      <h3>🎯 Quick Actions</h3>
+      <button class="btn" onclick="goToRoot()">🏠 Back to Root</button>
+      <button class="btn" onclick="goBack()">⬅️ Go Back</button>
+      <button class="btn" onclick="resetView()">🔄 Reset View</button>
+      <button class="btn" onclick="location.href='curiosity-graph.html'">📊 Full Graph View</button>
+    </div>
+    <div class="panel">
+      <h3>💡 Instructions</h3>
+      <p>• Click node to deep dive into children</p>
+      <p>• Use breadcrumb to navigate up</p>
+      <p>• Drag nodes to rearrange</p>
+      <p>• Scroll to zoom</p>
+    </div>
+  </div>
+  <div class="main-graph">
+    <svg id="graph-svg">
+      <defs>
+        <marker id="arrow" markerWidth="10" markerHeight="7" refX="28" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#d9b54c" />
+        </marker>
+      </defs>
+    </svg>
+    <div class="tooltip" id="tooltip"></div>
+  </div>
+</div>
+
+<script>
+const dataTree = {
+  id: "root", name: "ACCOUNT BOOK", type: "root", color: "#d9b54c",
+  desc: "Central financial record system maintaining investor accounts, investment activity, holdings, balances, and transaction history.",
+  details: ["Single source of truth for MF operations", "Maintains complete audit trail", "Ensures data integrity and reconciliation"],
+  children: [
+    { id: "schemas", name: "Schemas", type: "branch", color: "#a855f7", desc: "Data structure definitions and relationships",
+      details: ["10 schema categories", "Defines tables, keys, relationships"],
+      children: [
+        { id: "inv_schema", name: "Investor Schema", type: "schema", color: "#a855f7", desc: "Investor master data structure",
+          details: ["PK: INVESTOR_ID (example)", "Stores profile, KYC, contact", "FK to Folios"] },
+        { id: "scheme_schema", name: "Scheme Schema", type: "schema", color: "#a855f7", desc: "Mutual fund scheme definitions" },
+        { id: "folio_schema", name: "Folio Schema", type: "schema", color: "#a855f7", desc: "Folio mapping" },
+        { id: "sip_schema", name: "SIP Schema", type: "schema", color: "#a855f7", desc: "SIP registration & installments" },
+        { id: "lump_schema", name: "Lumpsum Schema", type: "schema", color: "#a855f7", desc: "One-time investment orders" },
+        { id: "wd_schema", name: "Withdrawal Schema", type: "schema", color: "#a855f7", desc: "Redemption structure" },
+        { id: "txn_schema", name: "Transaction Schema", type: "schema", color: "#a855f7", desc: "Central ledger" },
+        { id: "nav_schema", name: "NAV Schema", type: "schema", color: "#a855f7", desc: "Valuation data" },
+        { id: "hold_schema", name: "Holdings Schema", type: "schema", color: "#a855f7", desc: "Unit balances" },
+        { id: "audit_schema", name: "Audit Schema", type: "schema", color: "#a855f7", desc: "Audit trail & reconciliation" }
+      ]
+    },
+    { id: "investors", name: "Investors", type: "branch", color: "#667eea", desc: "Investor master and related entities",
+      details: ["1:N with Folios", "Multi-scheme investments"],
+      children: [
+        { id: "inv_master", name: "Investor Master", type: "investor", color: "#667eea", desc: "Central investor registry",
+          details: ["INVESTOR_ID (PK)", "Name, PAN(masked), KYC, Status"],
+          children: [
+            { id: "inv_profile", name: "Investor Profile", type: "investor", color: "#667eea", desc: "Personal & contact details" },
+            { id: "folios_node", name: "Folios", type: "scheme", color: "#43e97b", desc: "Investment accounts",
+              details: ["One investor → Many folios"] },
+            { id: "linked_schemes_n", name: "Linked Schemes", type: "scheme", color: "#43e97b", desc: "Schemes invested in" },
+            { id: "investments", name: "Investments", type: "investor", color: "#667eea", desc: "Investment activities",
+              children: [
+                { id: "sip_inv", name: "SIP Investments", type: "sip", color: "#f093fb", desc: "Systematic investments",
+                  children: [
+                    { id: "sip_reg_n", name: "SIP Registration", type: "sip", color: "#f093fb", desc: "Setup: Amount, Frequency, Dates" },
+                    { id: "sip_inst", name: "Installments", type: "sip", color: "#f093fb", desc: "Monthly/Weekly installments" },
+                    { id: "sip_units_n", name: "Units Allocated", type: "holding", color: "#06b6d4", desc: "SIP units" }
+                  ]
+                },
+                { id: "lump_inv", name: "Lumpsum Investments", type: "lumpsum", color: "#4facfe", desc: "One-time investments",
+                  children: [
+                    { id: "lump_order", name: "Lumpsum Order", type: "lumpsum", color: "#4facfe", desc: "Order details" },
+                    { id: "lump_pay", name: "Payment", type: "lumpsum", color: "#4facfe", desc: "Payment confirmation" },
+                    { id: "lump_units_n", name: "Units Allocated", type: "holding", color: "#06b6d4", desc: "Lumpsum units" }
+                  ]
+                }
+              ]
+            },
+            { id: "withdrawals_inv", name: "Withdrawals/Redemptions", type: "withdrawal", color: "#fa709a", desc: "Redemption activities",
+              children: [
+                { id: "wd_req", name: "Withdrawal Request", type: "withdrawal", color: "#fa709a", desc: "Units/Amount requested" },
+                { id: "wd_elig", name: "Eligibility Check", type: "withdrawal", color: "#fa709a", desc: "Validate available units" },
+                { id: "wd_nav_n", name: "Redemption NAV", type: "holding", color: "#06b6d4", desc: "Applicable NAV" },
+                { id: "wd_settle", name: "Settlement", type: "withdrawal", color: "#fa709a", desc: "Bank transfer" }
+              ]
+            },
+            { id: "holdings_inv", name: "Current Holdings", type: "holding", color: "#06b6d4", desc: "Unit balances" },
+            { id: "nominee_n", name: "Nominee Details", type: "investor", color: "#667eea", desc: "Nomination info" }
+          ]
+        }
+      ]
+    },
+    { id: "transactions", name: "Transactions", type: "branch", color: "#fbbf24", desc: "Transaction ledger",
+      children: [
+        { id: "txn_ledger_n", name: "Transaction Ledger", type: "transaction", color: "#fbbf24", desc: "All confirmed transactions",
+          details: ["Transaction ID, Date, Type, Amount, Units, NAV"] },
+        { id: "txn_types", name: "Transaction Types", type: "transaction", color: "#fbbf24", desc: "Categories",
+          children: [
+            { id: "tt_sip", name: "SIP Installment", type: "transaction", color: "#fbbf24" },
+            { id: "tt_lump", name: "Lumpsum Purchase", type: "transaction", color: "#fbbf24" },
+            { id: "tt_red", name: "Redemption", type: "transaction", color: "#fbbf24" },
+            { id: "tt_switch", name: "Switch", type: "transaction", color: "#fbbf24" },
+            { id: "tt_div", name: "Dividend", type: "transaction", color: "#fbbf24" }
+          ]
+        }
+      ]
+    },
+    { id: "holdings_branch_n", name: "Holdings & Valuation", type: "branch", color: "#06b6d4", desc: "Unit tracking & valuation",
+      children: [
+        { id: "avail_units", name: "Available Units", type: "holding", color: "#06b6d4", desc: "Opening + Purchases - Redemptions" },
+        { id: "nav_hist", name: "NAV History", type: "holding", color: "#06b6d4", desc: "Historical NAVs" },
+        { id: "valuation", name: "Current Valuation", type: "holding", color: "#06b6d4", desc: "Units × NAV" },
+        { id: "gain_loss", name: "Unrealized Gain/Loss", type: "holding", color: "#06b6d4", desc: "Performance tracking" }
+      ]
+    },
+    { id: "reports", name: "Reports & Reconciliation", type: "branch", color: "#ec4899", desc: "Reporting & reconciliation",
+      children: [
+        { id: "rpt_port", name: "Portfolio Report", type: "report", color: "#ec4899" },
+        { id: "rpt_sip_p", name: "SIP Performance", type: "report", color: "#ec4899" },
+        { id: "rpt_daily", name: "Daily Transactions", type: "report", color: "#ec4899" },
+        { id: "rpt_aum_n", name: "Scheme-wise AUM", type: "report", color: "#ec4899" },
+        { id: "rpt_bank", name: "Bank Reconciliation", type: "report", color: "#ec4899" },
+        { id: "rpt_nav_r", name: "NAV Reconciliation", type: "report", color: "#ec4899" },
+        { id: "rpt_audit_n", name: "Audit Trail", type: "report", color: "#ec4899" }
+      ]
+    }
+  ]
+};
+
+let currentData = dataTree;
+let history = [];
+const svg = d3.select("#graph-svg");
+const width = window.innerWidth - 340;
+const height = window.innerHeight;
+svg.attr("width", width).attr("height", height);
+
+function render() {
+  svg.selectAll("*").remove();
+  const defs = svg.append("defs");
+  defs.append("marker")
+    .attr("id", "arrow")
+    .attr("markerWidth", "10")
+    .attr("markerHeight", "7")
+    .attr("refX", "32")
+    .attr("refY", "3.5")
+    .attr("orient", "auto")
+    .append("polygon")
+    .attr("points", "0 0, 10 3.5, 0 7")
+    .attr("fill", "#d9b54c");
+  
+  const g = svg.append("g");
+  svg.call(d3.zoom().on("zoom", (e) => g.attr("transform", e.transform)));
+  
+  const nodes = [];
+  const links = [];
+  
+  function addNodes(node, parent, depth = 0) {
+    nodes.push({...node, depth, parent: parent?.id});
+    if (node.children) {
+      node.children.forEach(child => {
+        links.push({source: node.id, target: child.id});
+        addNodes(child, node, depth + 1);
+      });
+    }
+  }
+  addNodes(currentData);
+  
+  const simulation = d3.forceSimulation(nodes)
+    .force("link", d3.forceLink(links).id(d => d.id).distance(d => d.source.depth === 0 ? 150 : 110))
+    .force("charge", d3.forceManyBody().strength(d => d.depth === 0 ? -600 : -350))
+    .force("center", d3.forceCenter(width/2, height/2))
+    .force("collide", d3.forceCollide().radius(d => d.depth === 0 ? 50 : d.children ? 38 : 30));
+  
+  const link = g.append("g").selectAll("line")
+    .data(links).enter().append("line")
+    .attr("class", "link")
+    .attr("marker-end", "url(#arrow)");
+  
+  const node = g.append("g").selectAll("g")
+    .data(nodes).enter().append("g")
+    .attr("class", "node")
+    .call(d3.drag()
+      .on("start", (e,d) => { if(!e.active) simulation.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
+      .on("drag", (e,d) => { d.fx=e.x; d.fy=e.y; })
+      .on("end", (e,d) => { if(!e.active) simulation.alphaTarget(0); d.fx=null; d.fy=null; }));
+  
+  node.append("circle")
+    .attr("r", d => {
+      if (d.depth === 0) return 42;
+      if (d.children && d.children.length > 0) return 30;
+      return 24;
+    })
+    .attr("fill", d => d.color || "#667eea");
+  
+  node.append("text")
+    .attr("dy", 4)
+    .attr("text-anchor", "middle")
+    .style("font-size", d => d.depth === 0 ? "10px" : "8px")
+    .style("fill", "#fff")
+    .style("text-shadow", "2px 2px 3px #000")
+    .text(d => {
+      const name = d.name || '';
+      if (name.length > 12) return name.substring(0, 10) + '..';
+      return name;
+    });
+  
+  node.on("click", (e,d) => {
+    e.stopPropagation();
+    if (d.children && d.children.length > 0) {
+      history.push(currentData);
+      currentData = d;
+      updateBreadcrumb();
+      updatePanel(d);
+      render();
+    } else {
+      updatePanel(d);
+    }
+  })
+  .on("mouseover", (e,d) => {
+    const t = d3.select("#tooltip");
+    t.style("display","block")
+      .html(`<h4>${d.name}</h4>${d.desc ? `<p>${d.desc}</p>` : ''}${d.children ? `<p style="color:#43e97b;"><strong>Click to drill down (${d.children.length} items)</strong></p>` : '<p style="color:#a0a0a0;">Leaf node</p>'}`)
+      .style("left",(e.pageX+15)+"px").style("top",(e.pageY-15)+"px");
+  })
+  .on("mouseout", () => d3.select("#tooltip").style("display","none"));
+  
+  simulation.on("tick", () => {
+    link.attr("x1", d => d.source.x)
+        .attr("y1", d => d.source.y)
+        .attr("x2", d => d.target.x)
+        .attr("y2", d => d.target.y);
+    node.attr("transform", d => `translate(${d.x},${d.y})`);
+  });
+  
+  updateBreadcrumb();
+  updatePanel(currentData);
+}
+
+function updateBreadcrumb() {
+  const bc = d3.select("#breadcrumb");
+  bc.html("");
+  bc.append("div").attr("class","crumb").text("🏠 ACCOUNT BOOK").on("click", goToRoot);
+  if (history.length > 0) {
+    history.slice().reverse().forEach((h,i) => {
+      bc.append("div").text("→").style("color","#666");
+      bc.append("div").attr("class","crumb").text(h.name).on("click", () => {
+        currentData = h;
+        history = history.slice(0, history.length - i - 1);
+        render();
+      });
+    });
+  }
+  bc.append("div").text("→").style("color","#666");
+  bc.append("div").style("color","#fff").text(currentData.name);
+}
+
+function updatePanel(d) {
+  d3.select("#panelTitle").text(d.name);
+  d3.select("#panelDesc").text(d.desc || "Node details");
+  const pd = d3.select("#panelDetails").html("");
+  if (d.details) {
+    pd.append("div").style("margin-top","8px").html(`<strong style="color:#d9b54c;font-size:11px;">Key Details:</strong>`);
+    const list = pd.append("div").attr("class","field-list").style("margin-top","6px");
+    d.details.forEach(item => list.append("div").text("• " + item));
+  }
+  if (d.children) {
+    pd.append("div").style("margin-top","10px").html(`<strong style="color:#43e97b;font-size:11px;">Children (${d.children.length}): Click to explore</strong>`);
+    d.children.slice(0,6).forEach(c => {
+      pd.append("div").style("font-size","10px","color":"#a0a0a0","padding":"2px 0").text("→ " + c.name);
+    });
+  }
+}
+
+function goToRoot() {
+  currentData = dataTree;
+  history = [];
+  render();
+}
+function goBack() {
+  if (history.length > 0) {
+    currentData = history.pop();
+    render();
+  }
+}
+function resetView() {
+  svg.transition().duration(500).call(d3.zoom().transform, d3.zoomIdentity);
+}
+
+render();
+</script>
+</body>
+</html>

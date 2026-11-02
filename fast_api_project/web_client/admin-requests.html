@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Registration requests — NavDhan Console</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <main class="main">
+    <div class="topbar">
+      <h1>Registration requests</h1>
+      <span class="stamp" id="roleStamp"></span>
+    </div>
+
+    <div id="alert" class="alert"></div>
+
+    <div class="tabs" id="statusTabs">
+      <a href="#" data-status="PENDING" class="active">Pending</a>
+      <a href="#" data-status="APPROVED">Approved</a>
+      <a href="#" data-status="REJECTED">Rejected</a>
+      <a href="#" data-status="ALL">All</a>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>Requests</h2>
+          <p class="card-sub">Approving a request creates the login, assigns the role, and emails a one-time temporary password. Rejecting notifies the applicant.</p>
+        </div>
+      </div>
+
+      <div id="listState" class="skeleton-loading">Loading requests…</div>
+      <div class="table-wrap" id="tableWrap" style="display:none;">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th><th>Username</th><th>Full name</th><th>Email</th><th>Requested role</th><th>Status</th><th>Requested</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="requestRows"></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+  const authOk = requireAuth();
+  const roleOk = authOk && requireRole(["admin"]);
+  document.getElementById("roleStamp").textContent = Session.role();
+  document.getElementById("roleStamp").className = `stamp ${stampClass(Session.role())}`;
+
+  const alertEl = document.getElementById("alert");
+  const listState = document.getElementById("listState");
+  const tableWrap = document.getElementById("tableWrap");
+  const rowsEl = document.getElementById("requestRows");
+  const tabs = document.querySelectorAll("#statusTabs a");
+
+  let currentStatus = "PENDING";
+
+  function statusBadgeClass(status) {
+    return { APPROVED: "badge-verified", REJECTED: "badge-rejected", PENDING: "badge-pending" }[status] || "badge-pending";
+  }
+
+  function renderRows(requests) {
+    if (requests.length === 0) {
+      tableWrap.style.display = "none";
+      listState.style.display = "block";
+      listState.className = "empty-state";
+      listState.innerHTML = `<div class="glyph">—</div>No requests here.`;
+      return;
+    }
+    listState.style.display = "none";
+    tableWrap.style.display = "block";
+    rowsEl.innerHTML = requests
+      .map(
+        (r) => `
+        <tr>
+          <td class="mono">${r.request_id}</td>
+          <td class="mono">${r.username}</td>
+          <td>${r.full_name}</td>
+          <td>${r.email}</td>
+          <td>${r.requested_role}</td>
+          <td><span class="badge ${statusBadgeClass(r.status)}">${r.status}</span></td>
+          <td>${formatDate(r.requested_at)}</td>
+          <td>
+            ${
+              r.status === "PENDING"
+                ? `<div class="row-actions">
+                     <button class="btn btn-gold btn-sm" data-approve="${r.request_id}">Approve</button>
+                     <button class="btn btn-danger btn-sm" data-reject="${r.request_id}">Reject</button>
+                   </div>`
+                : ""
+            }
+          </td>
+        </tr>`
+      )
+      .join("");
+
+    rowsEl.querySelectorAll("[data-approve]").forEach((btn) =>
+      btn.addEventListener("click", () => approveRequest(btn.dataset.approve))
+    );
+    rowsEl.querySelectorAll("[data-reject]").forEach((btn) =>
+      btn.addEventListener("click", () => rejectRequest(btn.dataset.reject))
+    );
+  }
+
+  async function approveRequest(id) {
+    const override = prompt("Role to assign (leave blank to use the role they requested):", "");
+    try {
+      await apiFetch(`/admin/registration-requests/${id}/approve`, {
+        method: "POST",
+        body: override ? { role: override } : {},
+      });
+      showAlert(alertEl, `Request ${id} approved. Temporary password emailed.`, "success");
+      load();
+    } catch (err) {
+      showAlert(alertEl, err.message);
+    }
+  }
+
+  async function rejectRequest(id) {
+    const reason = prompt("Reason (optional, shown to the applicant):", "");
+    if (reason === null) return; // cancelled
+    try {
+      await apiFetch(`/admin/registration-requests/${id}/reject`, {
+        method: "POST",
+        body: { reason: reason || null },
+      });
+      showAlert(alertEl, `Request ${id} rejected.`, "success");
+      load();
+    } catch (err) {
+      showAlert(alertEl, err.message);
+    }
+  }
+
+  async function load() {
+    hideAlert(alertEl);
+    listState.style.display = "block";
+    listState.className = "skeleton-loading";
+    listState.textContent = "Loading requests…";
+    tableWrap.style.display = "none";
+    try {
+      const requests = await apiFetch(`/admin/registration-requests?status=${currentStatus}`);
+      renderRows(requests);
+    } catch (err) {
+      showAlert(alertEl, err.message);
+      listState.textContent = "Could not load requests.";
+    }
+  }
+
+  tabs.forEach((tab) =>
+    tab.addEventListener("click", (e) => {
+      e.preventDefault();
+      tabs.forEach((t) => t.classList.remove("active"));
+      tab.classList.add("active");
+      currentStatus = tab.dataset.status;
+      load();
+    })
+  );
+
+  function init() {
+    renderSidebar("admin-requests.html");
+    load();
+  }
+
+  if (roleOk) init();
+</script>
+</body>
+</html>

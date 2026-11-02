@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Transactions — NavDhan Console</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <main class="main">
+    <div class="topbar">
+      <h1>Transactions</h1>
+      <span class="stamp" id="roleStamp"></span>
+    </div>
+
+    <div id="alert" class="alert"></div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>Look up an investor</h2>
+          <p class="card-sub">Enter an investor ID to view their transaction history, or arrive here from the Investors page.</p>
+        </div>
+      </div>
+      <form id="lookupForm" class="form-grid" style="align-items:end;">
+        <div class="field" style="margin-bottom:0;">
+          <label for="lookupId">Investor ID</label>
+          <input id="lookupId" class="mono" required>
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <button class="btn btn-gold" type="submit">Load</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="investorSection" style="display:none;">
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <h2 id="investorName"></h2>
+            <p class="card-sub" id="investorMeta"></p>
+          </div>
+          <button class="btn btn-gold btn-sm" id="newTxnBtn">+ New transaction</button>
+        </div>
+
+        <div id="listState" class="skeleton-loading">Loading transactions…</div>
+        <div class="table-wrap" id="tableWrap" style="display:none;">
+          <table>
+            <thead>
+              <tr>
+                <th>Folio ID</th><th>Scheme ID</th><th>Units</th><th>NAV</th><th>Amount</th><th>Type</th><th>Date</th>
+              </tr>
+            </thead>
+            <tbody id="txnRows"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" id="formCard" style="display:none;">
+        <div class="card-head">
+          <h2>New transaction</h2>
+          <button class="btn btn-secondary btn-sm" id="cancelFormBtn">Cancel</button>
+        </div>
+        <form id="txnForm">
+          <div class="form-grid">
+            <div class="field">
+              <label for="folio_id">Folio ID</label>
+              <input id="folio_id" class="mono" required>
+            </div>
+            <div class="field">
+              <label for="scheme_id">Scheme ID</label>
+              <input id="scheme_id" class="mono" required>
+            </div>
+            <div class="field">
+              <label for="units">Units</label>
+              <input id="units" type="number" step="any" min="0.0001" required>
+            </div>
+            <div class="field">
+              <label for="nav">NAV</label>
+              <input id="nav" type="number" step="any" min="0.0001" required>
+            </div>
+            <div class="field">
+              <label for="amount">Amount</label>
+              <input id="amount" type="number" step="any" min="0.01" required>
+            </div>
+            <div class="field">
+              <label for="txn_type">Type</label>
+              <select id="txn_type">
+                <option value="PURCHASE">PURCHASE</option>
+                <option value="SIP">SIP</option>
+                <option value="REDEMPTION">REDEMPTION</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="txn_date">Date</label>
+              <input id="txn_date" type="date" required>
+            </div>
+          </div>
+          <button class="btn btn-gold" type="submit" id="saveBtn">Save transaction</button>
+        </form>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+  const authOk = requireAuth();
+  document.getElementById("roleStamp").textContent = Session.role();
+  document.getElementById("roleStamp").className = `stamp ${stampClass(Session.role())}`;
+
+  const alertEl = document.getElementById("alert");
+  const investorSection = document.getElementById("investorSection");
+  const listState = document.getElementById("listState");
+  const tableWrap = document.getElementById("tableWrap");
+  const rowsEl = document.getElementById("txnRows");
+  const formCard = document.getElementById("formCard");
+  const form = document.getElementById("txnForm");
+
+  let currentInvestorId = null;
+
+  function renderRows(transactions) {
+    if (transactions.length === 0) {
+      tableWrap.style.display = "none";
+      listState.style.display = "block";
+      listState.className = "empty-state";
+      listState.innerHTML = `<div class="glyph">—</div>No transactions for this investor yet.`;
+      return;
+    }
+    listState.style.display = "none";
+    tableWrap.style.display = "block";
+    rowsEl.innerHTML = transactions
+      .map(
+        (t) => `
+        <tr>
+          <td class="mono">${t.folio_id}</td>
+          <td class="mono">${t.scheme_id}</td>
+          <td class="mono">${t.units}</td>
+          <td class="mono">${t.nav}</td>
+          <td class="mono">${t.amount}</td>
+          <td>${t.txn_type}</td>
+          <td>${formatDate(t.txn_date)}</td>
+        </tr>`
+      )
+      .join("");
+  }
+
+  async function loadInvestor(investorId) {
+    hideAlert(alertEl);
+    listState.style.display = "block";
+    listState.className = "skeleton-loading";
+    listState.textContent = "Loading transactions…";
+    tableWrap.style.display = "none";
+    investorSection.style.display = "none";
+
+    try {
+      const data = await apiFetch(`/investors/${encodeURIComponent(investorId)}/transactions`);
+      currentInvestorId = investorId;
+      document.getElementById("investorName").textContent = data.name;
+      document.getElementById("investorMeta").textContent =
+        `${data.investor_id} — ${data.email} — ${data.mobile}`;
+      investorSection.style.display = "block";
+      renderRows(data.transactions);
+    } catch (err) {
+      showAlert(alertEl, err.message);
+    }
+  }
+
+  document.getElementById("lookupForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const id = document.getElementById("lookupId").value.trim();
+    if (id) loadInvestor(id);
+  });
+
+  document.getElementById("newTxnBtn").addEventListener("click", () => {
+    formCard.style.display = "block";
+    formCard.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  document.getElementById("cancelFormBtn").addEventListener("click", () => {
+    formCard.style.display = "none";
+    form.reset();
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    hideAlert(alertEl);
+    const saveBtn = document.getElementById("saveBtn");
+    saveBtn.disabled = true;
+
+    const payload = {
+      folio_id: document.getElementById("folio_id").value.trim(),
+      investor_id: currentInvestorId,
+      scheme_id: document.getElementById("scheme_id").value.trim(),
+      units: parseFloat(document.getElementById("units").value),
+      nav: parseFloat(document.getElementById("nav").value),
+      amount: parseFloat(document.getElementById("amount").value),
+      txn_type: document.getElementById("txn_type").value,
+      txn_date: document.getElementById("txn_date").value,
+    };
+
+    try {
+      await apiFetch("/transactions", { method: "POST", body: payload });
+      showAlert(alertEl, "Transaction created.", "success");
+      formCard.style.display = "none";
+      form.reset();
+      loadInvestor(currentInvestorId);
+    } catch (err) {
+      showAlert(alertEl, err.message);
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+
+  function init() {
+    renderSidebar("transactions.html");
+    const params = new URLSearchParams(window.location.search);
+    const investorId = params.get("investor_id");
+    if (investorId) {
+      document.getElementById("lookupId").value = investorId;
+      loadInvestor(investorId);
+    } else {
+      listState.style.display = "none";
+    }
+  }
+
+  if (authOk) init();
+</script>
+</body>
+</html>

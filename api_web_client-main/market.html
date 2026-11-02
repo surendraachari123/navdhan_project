@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Market Research — NavDhan Console</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .market-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:14px}
+  .market-card{border:1px solid var(--border,#e5e7eb);border-radius:12px;padding:16px;background:var(--card,#fff)}
+  .market-card h3{margin:0 0 8px}.market-price{font-size:25px;font-weight:700}.market-positive{color:#16834b}.market-negative{color:#b42318}
+  .market-meta{font-size:12px;opacity:.72;margin-top:8px}.market-metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;font-size:13px}
+  .market-metrics span{display:block;opacity:.7}.market-results article{padding:13px 0;border-bottom:1px solid var(--border,#e5e7eb)}
+</style>
+</head>
+<body>
+<div class="app-shell"><aside class="sidebar" id="sidebar"></aside><main class="main">
+  <div class="topbar"><h1>Market Research</h1><span class="stamp" id="roleStamp"></span></div>
+  <div id="alert" class="alert"></div>
+  <div class="card"><div class="card-head"><div><h2>Daily market watchlist</h2><p class="card-sub" id="marketMeta">Loading price snapshots…</p></div>
+    <div style="display:flex;gap:8px"><button class="btn btn-secondary" id="indexBtn" type="button" style="display:none">Index watchlist</button>
+    <button class="btn btn-primary" id="refreshBtn" type="button" style="display:none">Refresh now</button></div></div>
+    <div id="refreshStatus" class="card-sub"></div><div id="marketCards" class="market-grid"></div>
+  </div>
+  <div class="card"><h2>Search market analysis</h2><p class="card-sub">Search indexed technical summaries and provider news.</p>
+    <form id="searchForm" class="chat-form"><input id="searchInput" maxlength="300" required placeholder="e.g. recent positive sentiment for TCS">
+      <button class="btn btn-secondary" type="submit">Search</button></form><div id="searchResults" class="market-results"></div>
+  </div>
+  <p class="market-meta">Daily historical data and indicators are informational only, not investment advice. Source links are shown with each item.</p>
+</main></div>
+<script src="config.js"></script><script src="app.js"></script>
+<script>
+  const authOk = requireAuth();
+  const role = Session.role();
+  const allowed = role === "admin" || role === "manager";
+  if (authOk && !allowed) window.location.href = "dashboard.html";
+  renderSidebar("market.html");
+  document.getElementById("roleStamp").textContent = role || "";
+  document.getElementById("roleStamp").className = `stamp ${stampClass(role)}`;
+  const alertBox = document.getElementById("alert");
+  const cards = document.getElementById("marketCards");
+  const refreshBtn = document.getElementById("refreshBtn");
+  const indexBtn = document.getElementById("indexBtn");
+  if (role === "admin") { refreshBtn.style.display = "inline-flex"; indexBtn.style.display = "inline-flex"; }
+  const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+  const safeHref = value => { try { const u = new URL(value); return ["http:","https:"].includes(u.protocol) ? u.href : "#"; } catch { return "#"; } };
+  const fmt = value => value == null ? "—" : Number(value).toFixed(2);
+
+  async function loadOverview() {
+    try {
+      const data = await apiFetch("/market/overview");
+      document.getElementById("marketMeta").textContent = data.last_updated
+        ? `Provider: ${data.provider} · Last updated: ${new Date(data.last_updated).toLocaleString()}`
+        : `No snapshots yet. Admin can run the first refresh. Watchlist: ${(data.watchlist || []).join(", ") || "not configured"}`;
+      cards.innerHTML = (data.items || []).map(item => {
+        const positive = Number(item.daily_change_pct) >= 0;
+        return `<article class="market-card"><h3>${esc(item.symbol)}</h3>
+          <div class="market-price">${esc(fmt(item.close_price))}</div>
+          <div class="${positive ? "market-positive" : "market-negative"}">${item.daily_change_pct == null ? "—" : `${positive ? "+" : ""}${esc(fmt(item.daily_change_pct))}%`}</div>
+          <div class="market-metrics"><div><span>20 day avg</span>${esc(fmt(item.sma20))}</div><div><span>50 day avg</span>${esc(fmt(item.sma50))}</div>
+            <div><span>RSI (14)</span>${esc(fmt(item.rsi14))}</div><div><span>20 day volatility</span>${esc(fmt(item.volatility20_pct))}%</div></div>
+          <p>${esc(item.summary)}</p><a href="${esc(safeHref(item.source_url))}" target="_blank" rel="noopener noreferrer">Source and data details</a>
+          <div class="market-meta">Price date: ${esc(item.price_date)} · ${esc(item.source)}</div></article>`;
+      }).join("") || `<div class="empty-state">No market data yet. Configure a provider key and run the first refresh.</div>`;
+    } catch (err) { alertBox.textContent = err.message; alertBox.className = "alert alert-error"; }
+  }
+
+  async function pollRun(runId) {
+    const status = document.getElementById("refreshStatus");
+    for (let i = 0; i < 40; i++) {
+      const data = await apiFetch(`/market/refresh/${encodeURIComponent(runId)}`);
+      status.textContent = `Refresh ${data.status.toLowerCase()}${data.error_message ? `: ${data.error_message}` : ""}`;
+      if (data.status !== "RUNNING") { await loadOverview(); return; }
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+    status.textContent = "Refresh is still running. Reload this page to check again.";
+  }
+
+  refreshBtn.addEventListener("click", async () => {
+    refreshBtn.disabled = true;
+    try { const run = await apiFetch("/market/refresh", {method:"POST"}); await pollRun(run.run_id); }
+    catch (err) { alertBox.textContent = err.message; alertBox.className = "alert alert-error"; }
+    finally { refreshBtn.disabled = false; }
+  });
+
+  indexBtn.addEventListener("click", async () => {
+    indexBtn.disabled = true;
+    const status = document.getElementById("refreshStatus");
+    try {
+      const data = await apiFetch("/market/index-watchlist", {method:"POST"});
+      status.textContent = `Indexed ${data.indexed_instruments} instruments in Qdrant collection ${data.collection}: ${data.symbols.join(", ")}`;
+    } catch (err) { status.textContent = err.message; }
+    finally { indexBtn.disabled = false; }
+  });
+
+  document.getElementById("searchForm").addEventListener("submit", async event => {
+    event.preventDefault();
+    const q = document.getElementById("searchInput").value.trim();
+    const target = document.getElementById("searchResults");
+    target.textContent = "Searching…";
+    try {
+      const data = await apiFetch(`/market/search?q=${encodeURIComponent(q)}`);
+      target.innerHTML = (data.results || []).map(r => `<article><strong>${esc(r.title || r.symbol || "Market analysis")}</strong>
+        <p>${esc(r.text)}</p><div class="market-meta">${esc(r.source || "")}${r.published_at ? ` · ${esc(r.published_at)}` : ""} · match ${esc(r.score)}</div>
+        ${r.url || r.source_url ? `<a href="${esc(safeHref(r.url || r.source_url))}" target="_blank" rel="noopener noreferrer">Open source</a>` : ""}</article>`).join("")
+        || "No indexed analysis found yet. Run a refresh after configuring the provider.";
+    } catch (err) { target.textContent = err.message; }
+  });
+  loadOverview();
+</script>
+</body></html>

@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Investor Account Book - Curiosity Graph — NavDhan Console</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <main class="main">
+    <div class="topbar">
+      <h1>Curiosity Graph - Interactive Network</h1>
+      <span class="stamp" id="roleStamp"></span>
+    </div>
+
+    <div id="alert" class="alert"></div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>Select Investor</h2>
+          <p class="card-sub">Force-directed curiosity graph showing connections</p>
+        </div>
+        <a href="account-book.html" class="btn btn-secondary btn-sm">Switch to 2D View</a>
+      </div>
+      <form id="lookupForm" class="form-grid" style="align-items:end;">
+        <div class="field" style="margin-bottom:0; flex:2;">
+          <label for="lookupId">Investor ID</label>
+          <input id="lookupId" class="mono" placeholder="e.g., INV001" required>
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <button class="btn btn-gold" type="submit">Load Curiosity Graph</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="accountBookSection" style="display:none;">
+      <div class="card">
+        <div class="card-head">
+          <h2>Network Visualization</h2>
+          <p class="card-sub">Curiosity-driven exploration of investment connections</p>
+        </div>
+        <div style="height:650px; position:relative; background: radial-gradient(ellipse at center, #1a1a2e 0%, #000000 100%); border-radius:12px; overflow:hidden;">
+          <div id="scene-container" style="width:100%; height:100%;"></div>
+          <div style="position:absolute; top:10px; left:10px; background:rgba(0,0,0,0.8); color:white; padding:12px; border-radius:8px; font-size:11px; line-height:1.6;">
+            <div style="font-weight:700; margin-bottom:6px; color:#d9b54c;">Legend</div>
+            <div>🔵 Investor (Center)</div>
+            <div>🟢 Schemes</div>
+            <div>🟡 SIP Transactions</div>
+            <div>🔵 Lumpsum/Purchase</div>
+            <div>🔴 Redemptions</div>
+            <div style="margin-top:6px; opacity:0.7;">Click & drag to explore</div>
+          </div>
+          <div style="position:absolute; top:10px; right:10px; background:rgba(0,0,0,0.8); color:white; padding:12px; border-radius:8px; font-size:11px;">
+            <div id="nodeInfo">Hover over nodes for details</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:10px;">
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding:14px; border-radius:10px; color:white; text-align:center;">
+          <div style="font-size:11px; opacity:0.9;">Connections</div>
+          <div style="font-size:20px; font-weight:700;" id="connCount">0</div>
+        </div>
+        <div style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); padding:14px; border-radius:10px; color:white; text-align:center;">
+          <div style="font-size:11px; opacity:0.9;">Schemes</div>
+          <div style="font-size:20px; font-weight:700;" id="schemeCountC">0</div>
+        </div>
+        <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding:14px; border-radius:10px; color:white; text-align:center;">
+          <div style="font-size:11px; opacity:0.9;">SIP Nodes</div>
+          <div style="font-size:20px; font-weight:700;" id="sipCountC">0</div>
+        </div>
+        <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); padding:14px; border-radius:10px; color:white; text-align:center;">
+          <div style="font-size:11px; opacity:0.9;">Purchase Nodes</div>
+          <div style="font-size:20px; font-weight:700;" id="purCountC">0</div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+  const authOk = requireAuth();
+  document.getElementById("roleStamp").textContent = Session.role();
+  document.getElementById("roleStamp").className = `stamp ${stampClass(Session.role())}`;
+
+  const alertEl = document.getElementById("alert");
+  const accountBookSection = document.getElementById("accountBookSection");
+
+  let scene, camera, renderer, controls;
+  let nodes = [], lines = [];
+
+  function formatCurrency(amount) {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      maximumFractionDigits: 0
+    }).format(amount || 0);
+  }
+
+  function init3D() {
+    const container = document.getElementById('scene-container');
+    scene = new THREE.Scene();
+    
+    camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 2000);
+    camera.position.set(30, 20, 30);
+    
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    container.appendChild(renderer.domElement);
+    
+    controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambientLight);
+    
+    animate();
+  }
+
+  function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    
+    // Pulse effect
+    const time = Date.now() * 0.001;
+    nodes.forEach((node, i) => {
+      if (node.userData.type === 'investor') {
+        node.scale.set(1 + Math.sin(time) * 0.1, 1 + Math.sin(time) * 0.1, 1 + Math.sin(time) * 0.1);
+      }
+    });
+    
+    renderer.render(scene, camera);
+  }
+
+  function createNode(x, y, z, color, size, data) {
+    const geometry = new THREE.SphereGeometry(size, 32, 32);
+    const material = new THREE.MeshPhongMaterial({ 
+      color: color,
+      emissive: color,
+      emissiveIntensity: 0.3,
+      transparent: true,
+      opacity: 0.9
+    });
+    const sphere = new THREE.Mesh(geometry, material);
+    sphere.position.set(x, y, z);
+    sphere.userData = data;
+    scene.add(sphere);
+    nodes.push(sphere);
+    return sphere;
+  }
+
+  function createLine(from, to, color) {
+    const points = [from.position, to.position];
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    const material = new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: 0.4 });
+    const line = new THREE.Line(geometry, material);
+    scene.add(line);
+    lines.push(line);
+  }
+
+  async function loadAccountBook(investorId) {
+    hideAlert(alertEl);
+    try {
+      const data = await apiFetch(`/investors/${encodeURIComponent(investorId)}/transactions`);
+      
+      // Clear existing
+      nodes.forEach(n => scene.remove(n));
+      lines.forEach(l => scene.remove(l));
+      nodes = []; lines = [];
+      
+      const transactions = data.transactions || [];
+      
+      // Create investor node
+      const investorNode = createNode(0, 0, 0, 0x667eea, 2, { 
+        type: 'investor', 
+        name: data.name, 
+        id: data.investor_id 
+      });
+      
+      const schemes = {};
+      transactions.forEach(t => {
+        if (!schemes[t.scheme_id]) schemes[t.scheme_id] = { sip: [], pur: [], red: [] };
+        if (t.txn_type === 'SIP') schemes[t.scheme_id].sip.push(t);
+        else if (t.txn_type === 'PURCHASE') schemes[t.scheme_id].pur.push(t);
+        else if (t.txn_type === 'REDEMPTION') schemes[t.scheme_id].red.push(t);
+      });
+      
+      const schemeCount = Object.keys(schemes).length;
+      const angleStep = (Math.PI * 2) / Math.max(schemeCount, 1);
+      
+      let connCount = 0, sipCountC = 0, purCountC = 0;
+      
+      Object.keys(schemes).forEach((schemeId, idx) => {
+        const angle = angleStep * idx;
+        const x = Math.cos(angle) * 12;
+        const z = Math.sin(angle) * 12;
+        const schemeNode = createNode(x, 0, z, 0x43e97b, 1.2, { type: 'scheme', id: schemeId });
+        createLine(investorNode, schemeNode, 0x43e97b);
+        connCount++;
+        
+        const s = schemes[schemeId];
+        // SIP
+        s.sip.forEach((t, i) => {
+          const ax = x + Math.cos(angle + (i*0.3)) * 4;
+          const az = z + Math.sin(angle + (i*0.3)) * 4;
+          const sy = 3 + (i * 0.5);
+          const sipNode = createNode(ax, sy, az, 0xf093fb, 0.4, { type: 'sip', amount: t.amount, date: t.txn_date });
+          createLine(schemeNode, sipNode, 0xf093fb);
+          connCount++; sipCountC++;
+        });
+        // Purchase
+        s.pur.forEach((t, i) => {
+          const ax = x + Math.cos(angle - (i*0.3)) * 4;
+          const az = z + Math.sin(angle - (i*0.3)) * 4;
+          const sy = -2 - (i * 0.3);
+          const purNode = createNode(ax, sy, az, 0x4facfe, 0.4, { type: 'purchase', amount: t.amount, date: t.txn_date });
+          createLine(schemeNode, purNode, 0x4facfe);
+          connCount++; purCountC++;
+        });
+        // Redemption
+        s.red.forEach((t, i) => {
+          const ax = x + Math.cos(angle) * 5;
+          const az = z + Math.sin(angle) * 5;
+          const sy = -4 - (i * 0.4);
+          const redNode = createNode(ax, sy, az, 0xfa709a, 0.4, { type: 'redemption', amount: t.amount, date: t.txn_date });
+          createLine(schemeNode, redNode, 0xfa709a);
+          connCount++;
+        });
+      });
+      
+      document.getElementById('connCount').textContent = connCount;
+      document.getElementById('schemeCountC').textContent = schemeCount;
+      document.getElementById('sipCountC').textContent = sipCountC;
+      document.getElementById('purCountC').textContent = purCountC;
+      
+      accountBookSection.style.display = "block";
+      accountBookSection.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (err) {
+      showAlert(alertEl, err.message);
+    }
+  }
+
+  document.getElementById("lookupForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const id = document.getElementById("lookupId").value.trim();
+    if (id) loadAccountBook(id);
+  });
+
+  function init() {
+    renderSidebar("account-book-curiosity.html");
+    init3D();
+    const params = new URLSearchParams(window.location.search);
+    const investorId = params.get("investor_id");
+    if (investorId) {
+      document.getElementById("lookupId").value = investorId;
+      loadAccountBook(investorId);
+    }
+  }
+
+  if (authOk) init();
+</script>
+</body>
+</html>

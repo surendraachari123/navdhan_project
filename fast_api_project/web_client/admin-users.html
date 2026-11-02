@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Users — NavDhan Console</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <main class="main">
+    <div class="topbar">
+      <h1>Users</h1>
+      <span class="stamp" id="roleStamp"></span>
+    </div>
+
+    <div id="alert" class="alert"></div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>All users</h2>
+          <p class="card-sub">Change a user's role, deactivate/reactivate their login, or remove their account entirely.</p>
+        </div>
+      </div>
+
+      <div id="listState" class="skeleton-loading">Loading users…</div>
+      <div class="table-wrap" id="tableWrap" style="display:none;">
+        <table>
+          <thead>
+            <tr>
+              <th>Username</th><th>Email</th><th>Role</th><th>Status</th><th>Must change pwd</th><th>Last login</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="userRows"></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+  const authOk = requireAuth();
+  const roleOk = authOk && requireRole(["admin"]);
+  document.getElementById("roleStamp").textContent = Session.role();
+  document.getElementById("roleStamp").className = `stamp ${stampClass(Session.role())}`;
+
+  const alertEl = document.getElementById("alert");
+  const listState = document.getElementById("listState");
+  const tableWrap = document.getElementById("tableWrap");
+  const rowsEl = document.getElementById("userRows");
+  const ROLES = ["admin", "manager", "user"];
+
+  function roleSelect(username, currentRole) {
+    return `<select data-role-for="${username}" class="mono" style="padding:4px 8px;">
+      ${ROLES.map((r) => `<option value="${r}" ${r === currentRole ? "selected" : ""}>${r}</option>`).join("")}
+    </select>`;
+  }
+
+  function renderRows(users) {
+    if (users.length === 0) {
+      tableWrap.style.display = "none";
+      listState.style.display = "block";
+      listState.className = "empty-state";
+      listState.innerHTML = `<div class="glyph">—</div>No users on record yet.`;
+      return;
+    }
+    listState.style.display = "none";
+    tableWrap.style.display = "block";
+    rowsEl.innerHTML = users
+      .map(
+        (u) => `
+        <tr>
+          <td class="mono">${u.username}</td>
+          <td>${u.email || "—"}</td>
+          <td>${roleSelect(u.username, u.role)}</td>
+          <td><span class="badge ${u.is_active ? "badge-verified" : "badge-inactive"}">${u.is_active ? "Active" : "Inactive"}</span></td>
+          <td>${u.force_password_change ? "Yes" : "No"}</td>
+          <td>${formatDate(u.last_login)}</td>
+          <td>
+            <div class="row-actions">
+              <button class="btn btn-secondary btn-sm" data-save="${u.username}">Save</button>
+              <button class="btn btn-secondary btn-sm" data-toggle="${u.username}" data-active="${u.is_active}">
+                ${u.is_active ? "Deactivate" : "Activate"}
+              </button>
+              <button class="btn btn-danger btn-sm" data-delete="${u.username}">Delete</button>
+            </div>
+          </td>
+        </tr>`
+      )
+      .join("");
+
+    rowsEl.querySelectorAll("[data-save]").forEach((btn) =>
+      btn.addEventListener("click", () => saveRole(btn.dataset.save))
+    );
+    rowsEl.querySelectorAll("[data-toggle]").forEach((btn) =>
+      btn.addEventListener("click", () => toggleActive(btn.dataset.toggle, btn.dataset.active === "true"))
+    );
+    rowsEl.querySelectorAll("[data-delete]").forEach((btn) =>
+      btn.addEventListener("click", () => deleteUser(btn.dataset.delete))
+    );
+  }
+
+  async function saveRole(username) {
+    const select = rowsEl.querySelector(`[data-role-for="${username}"]`);
+    try {
+      await apiFetch(`/admin/users/${encodeURIComponent(username)}`, {
+        method: "PATCH",
+        body: { role: select.value },
+      });
+      showAlert(alertEl, `Updated role for '${username}'.`, "success");
+      load();
+    } catch (err) {
+      showAlert(alertEl, err.message);
+    }
+  }
+
+  async function toggleActive(username, isActive) {
+    try {
+      await apiFetch(`/admin/users/${encodeURIComponent(username)}`, {
+        method: "PATCH",
+        body: { is_active: !isActive },
+      });
+      showAlert(alertEl, `${!isActive ? "Activated" : "Deactivated"} '${username}'.`, "success");
+      load();
+    } catch (err) {
+      showAlert(alertEl, err.message);
+    }
+  }
+
+  async function deleteUser(username) {
+    if (!confirm(`Delete user '${username}'? This cannot be undone.`)) return;
+    try {
+      await apiFetch(`/admin/users/${encodeURIComponent(username)}`, { method: "DELETE" });
+      showAlert(alertEl, `User '${username}' deleted.`, "success");
+      load();
+    } catch (err) {
+      showAlert(alertEl, err.message);
+    }
+  }
+
+  async function load() {
+    hideAlert(alertEl);
+    listState.style.display = "block";
+    listState.className = "skeleton-loading";
+    listState.textContent = "Loading users…";
+    tableWrap.style.display = "none";
+    try {
+      const users = await apiFetch("/admin/users");
+      renderRows(users);
+    } catch (err) {
+      showAlert(alertEl, err.message);
+      listState.textContent = "Could not load users.";
+    }
+  }
+
+  function init() {
+    renderSidebar("admin-users.html");
+    load();
+  }
+
+  if (roleOk) init();
+</script>
+</body>
+</html>

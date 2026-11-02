@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ETL Pipelines — NavDhan Console</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <main class="main">
+    <div class="topbar">
+      <h1>ETL Pipelines</h1>
+      <span class="stamp" id="roleStamp"></span>
+    </div>
+
+    <div id="alert" class="alert"></div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>Run a pipeline</h2>
+          <p class="card-sub">Trigger pipelines and monitor their status in real-time</p>
+        </div>
+      </div>
+      <div class="row-actions" style="margin-bottom: 16px;">
+        <button class="btn btn-primary" id="runEtlBtn">Run ETL pipeline</button>
+        <button class="btn btn-primary" id="runHorseEtlBtn">Run owner ETL (S3 → Oracle)</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>Job Status</h2>
+          <p class="card-sub">Auto-refreshes every 3 seconds</p>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="location.reload()">Refresh</button>
+      </div>
+
+      <div id="listState" class="empty-state">
+        <div class="glyph">—</div>No jobs yet. Click a button above to start a pipeline.
+      </div>
+      <div class="table-wrap" id="tableWrap" style="display:none;">
+        <table>
+          <thead>
+            <tr>
+              <th>Job ID</th>
+              <th>Status</th>
+              <th>Output / Error</th>
+              <th>Started</th>
+              <th>Finished</th>
+            </tr>
+          </thead>
+          <tbody id="jobRows"></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+  const authOk = requireAuth();
+  const roleOk = authOk && requireRole(["admin"]);
+  document.getElementById("roleStamp").textContent = Session.role();
+  document.getElementById("roleStamp").className = `stamp ${stampClass(Session.role())}`;
+
+  const alertEl = document.getElementById("alert");
+  const listState = document.getElementById("listState");
+  const tableWrap = document.getElementById("tableWrap");
+  const rowsEl = document.getElementById("jobRows");
+
+  let jobs = [];
+  let pollInterval = null;
+
+  function getStatusClass(status) {
+    const s = String(status || '').toUpperCase();
+    if (s === 'SUCCESS' || s === 'COMPLETED') return 'badge-verified';
+    if (s === 'FAILED' || s === 'ERROR') return 'badge-rejected';
+    if (s === 'RUNNING' || s === 'PENDING') return 'badge-pending';
+    return 'badge-pending';
+  }
+
+  function renderJobs() {
+    if (jobs.length === 0) {
+      listState.style.display = 'block';
+      tableWrap.style.display = 'none';
+      return;
+    }
+    listState.style.display = 'none';
+    tableWrap.style.display = 'block';
+    
+    rowsEl.innerHTML = jobs.slice().reverse().map(j => {
+      const status = j.status || 'UNKNOWN';
+      const msg = j.error_message || j.output || j.message || '-';
+      const shortMsg = String(msg).length > 150 ? String(msg).substring(0, 150) + '...' : msg;
+      return `
+        <tr>
+          <td class="mono" style="font-size:11px;">${j.job_id}</td>
+          <td><span class="badge ${getStatusClass(status)}">${status}</span></td>
+          <td>
+            <div style="max-width:350px; overflow:auto; font-size:12px;">
+              ${String(msg).replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+            </div>
+          </td>
+          <td style="white-space:nowrap; font-size:12px;">${j.started_at ? new Date(j.started_at).toLocaleString('en-IN') : '-'}</td>
+          <td style="white-space:nowrap; font-size:12px;">${j.finished_at ? new Date(j.finished_at).toLocaleString('en-IN') : '-'}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  async function pollAll() {
+    const running = jobs.filter(j => {
+      const s = String(j.status || '').toUpperCase();
+      return s === 'RUNNING' || s === 'PENDING';
+    });
+    if (running.length === 0) {
+      if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+      }
+      return;
+    }
+    for (const job of running) {
+      try {
+        const res = await apiFetch(`/run-etl/${job.job_id}`);
+        const idx = jobs.findIndex(x => x.job_id === job.job_id);
+        if (idx >= 0) {
+          jobs[idx] = {
+            job_id: res.job_id || job.job_id,
+            status: res.status,
+            output: res.output,
+            error_message: res.error_message,
+            started_at: res.started_at || job.started_at,
+            finished_at: res.finished_at
+          };
+        }
+      } catch (e) {
+        console.error('Poll failed for', job.job_id, e);
+      }
+    }
+    renderJobs();
+  }
+
+  async function startJob(endpoint, btn) {
+    hideAlert(alertEl);
+    btn.disabled = true;
+    try {
+      const res = await apiFetch(endpoint, { method: 'POST' });
+      console.log('Started job:', res);
+      jobs.push({
+        job_id: res.job_id,
+        status: res.status || 'RUNNING',
+        output: null,
+        error_message: null,
+        started_at: new Date().toISOString(),
+        finished_at: null
+      });
+      renderJobs();
+      // Start polling
+      setTimeout(() => pollAll(), 500);
+      if (!pollInterval) {
+        pollInterval = setInterval(pollAll, 3000);
+      }
+    } catch (e) {
+      showAlert(alertEl, e.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  document.getElementById('runEtlBtn').onclick = (e) => startJob('/run-etl', e.target);
+  document.getElementById('runHorseEtlBtn').onclick = (e) => startJob('/run-horse-etl', e.target);
+
+  function init() {
+    renderSidebar('admin-etl.html');
+    renderJobs();
+  }
+
+  if (roleOk) init();
+</script>
+</body>
+</html>

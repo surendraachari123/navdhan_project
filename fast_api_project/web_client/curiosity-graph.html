@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mutual Fund Account Book - Curiosity Graph</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif; background: #0a0a0f; color: #e0e0e0; overflow: hidden; }
+  
+  .graph-container { display: flex; height: 100vh; }
+  .sidebar-graph { width: 320px; background: linear-gradient(180deg, #1a1a2e 0%, #0f0f23 100%); border-right: 2px solid #d9b54c; padding: 20px; overflow-y: auto; }
+  .main-graph { flex: 1; position: relative; background: radial-gradient(ellipse at center, #151530 0%, #050510 100%); }
+  #graph-svg { width: 100%; height: 100%; }
+  
+  .graph-header { margin-bottom: 24px; }
+  .graph-header h1 { color: #d9b54c; font-size: 22px; margin-bottom: 6px; }
+  .graph-header p { color: #a0a0a0; font-size: 12px; }
+  
+  .legend { margin-bottom: 24px; }
+  .legend h3 { color: #d9b54c; font-size: 14px; margin-bottom: 12px; }
+  .legend-item { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 12px; }
+  .legend-dot { width: 14px; height: 14px; border-radius: 50%; }
+  
+  .info-panel { background: rgba(217, 181, 76, 0.1); border: 1px solid #d9b54c; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .info-panel h3 { color: #d9b54c; font-size: 14px; margin-bottom: 10px; }
+  .info-panel p { font-size: 11px; line-height: 1.6; color: #c0c0c0; margin-bottom: 8px; }
+  .info-panel ul { margin-left: 16px; font-size: 11px; line-height: 1.6; }
+  .info-panel li { margin-bottom: 4px; color: #c0c0c0; }
+  
+  .controls { margin-top: 20px; }
+  .controls h3 { color: #d9b54c; font-size: 13px; margin-bottom: 10px; }
+  .btn-ctrl { width: 100%; padding: 8px; margin-bottom: 6px; background: rgba(217, 181, 76, 0.2); border: 1px solid #d9b54c; color: #d9b54c; border-radius: 6px; cursor: pointer; font-size: 11px; }
+  .btn-ctrl:hover { background: rgba(217, 181, 76, 0.4); }
+  
+  .node { cursor: pointer; }
+  .node circle { stroke-width: 3px; stroke: #fff; filter: drop-shadow(0 0 8px currentColor); }
+  .node text { font-size: 10px; font-weight: 600; fill: #fff; text-shadow: 2px 2px 4px #000; pointer-events: none; }
+  .link { stroke-opacity: 0.6; stroke-width: 2px; fill: none; }
+  .link-label { font-size: 8px; fill: #d9b54c; text-shadow: 1px 1px 2px #000; pointer-events: none; }
+  
+  .tooltip { position: absolute; background: rgba(10, 10, 15, 0.95); border: 2px solid #d9b54c; border-radius: 8px; padding: 12px; max-width: 320px; pointer-events: none; display: none; z-index: 1000; box-shadow: 0 0 20px rgba(217, 181, 76, 0.5); }
+  .tooltip h4 { color: #d9b54c; margin-bottom: 8px; font-size: 13px; }
+  .tooltip p { font-size: 11px; line-height: 1.5; margin-bottom: 6px; color: #d0d0d0; }
+  .tooltip strong { color: #fff; }
+  
+  .path-highlight { stroke: #ff6b6b !important; stroke-width: 4px !important; stroke-opacity: 1 !important; }
+  .node-highlight circle { stroke: #ff6b6b !important; stroke-width: 5px !important; filter: drop-shadow(0 0 12px #ff6b6b); }
+</style>
+</head>
+<body>
+<div class="graph-container">
+  <div class="sidebar-graph">
+    <div class="graph-header">
+      <h1>🔍 Curiosity Graph</h1>
+      <p>Mutual Fund Account Book Knowledge Graph</p>
+    </div>
+    
+    <div class="legend">
+      <h3>🎨 Node Types</h3>
+      <div class="legend-item"><div class="legend-dot" style="background:#d9b54c;"></div><span>Root - Account Book</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#667eea;"></div><span>Investors</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#f093fb;"></div><span>SIP Investments</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#4facfe;"></div><span>Lumpsum Investments</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#fa709a;"></div><span>Withdrawals/Redemptions</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#43e97b;"></div><span>Schemes/Folios</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#a855f7;"></div><span>Schemas</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#fbbf24;"></div><span>Transactions</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#06b6d4;"></div><span>Holdings/Valuation</span></div>
+      <div class="legend-item"><div class="legend-dot" style="background:#ec4899;"></div><span>Reports/Reconciliation</span></div>
+    </div>
+    
+    <div class="info-panel">
+      <h3>📊 System Overview</h3>
+      <p><strong>Purpose:</strong> The Account Book is the central financial record system maintaining investor accounts, investment activity, holdings, balances, and transaction history.</p>
+      <p><strong>Key Principles:</strong></p>
+      <ul>
+        <li>Orders/Requests ≠ Completed Transactions</li>
+        <li>Holdings updated only on confirmed transactions</li>
+        <li>NAV applied based on cut-off rules</li>
+        <li>Full audit trail maintained</li>
+      </ul>
+    </div>
+    
+    <div class="info-panel">
+      <h3>🛤️ Highlighted Paths</h3>
+      <p><strong>Path A - SIP Flow:</strong></p>
+      <p style="font-size:10px;">Investor → SIP Registration → Installment → Transaction Ledger → Unit Allocation → Holdings → Portfolio Report</p>
+      <button class="btn-ctrl" onclick="highlightPath('pathA')">Highlight SIP Path</button>
+      
+      <p style="margin-top:10px;"><strong>Path B - Lumpsum Flow:</strong></p>
+      <p style="font-size:10px;">Investor → Lumpsum Order → Payment → NAV Application → Transaction Ledger → Holdings</p>
+      <button class="btn-ctrl" onclick="highlightPath('pathB')">Highlight Lumpsum Path</button>
+      
+      <p style="margin-top:10px;"><strong>Path C - Redemption Flow:</strong></p>
+      <p style="font-size:10px;">Investor → Withdrawal Request → Eligibility → Redemption NAV → Units Redeemed → Holdings Updated → Settlement</p>
+      <button class="btn-ctrl" onclick="highlightPath('pathC')">Highlight Redemption Path</button>
+    </div>
+    
+    <div class="controls">
+      <h3>⚙️ Controls</h3>
+      <button class="btn-ctrl" onclick="resetGraph()">🔄 Reset View</button>
+      <button class="btn-ctrl" onclick="expandAll()">📂 Expand All</button>
+      <button class="btn-ctrl" onclick="collapseAll()">📁 Collapse All</button>
+      <button class="btn-ctrl" onclick="location.href='account-book.html'">← Back to Account Book</button>
+    </div>
+  </div>
+  
+  <div class="main-graph">
+    <svg id="graph-svg"></svg>
+    <div class="tooltip" id="tooltip"></div>
+  </div>
+</div>
+
+<script>
+const graphData = {
+  nodes: [
+    // Root
+    { id: "account_book", name: "ACCOUNT BOOK", type: "root", group: 0, level: 0, 
+      desc: "Central financial record system maintaining investor accounts, investment activity, holdings, balances, and transaction history. Acts as single source of truth for all MF operations.",
+      details: ["Manages account structure", "Maintains transaction history", "Tracks holdings and balances", "Ensures reconciliation"] },
+    
+    // Primary branches
+    { id: "schemas_branch", name: "Schemas", type: "branch", group: 1, level: 1, parent: "account_book" },
+    { id: "investors_branch", name: "Investors", type: "branch", group: 2, level: 1, parent: "account_book" },
+    { id: "transactions_branch", name: "Transactions", type: "branch", group: 7, level: 1, parent: "account_book" },
+    { id: "reports_branch", name: "Reports & Reconciliation", type: "branch", group: 10, level: 1, parent: "account_book" },
+    
+    // Schemas
+    { id: "investor_schema", name: "Investor Schema", type: "schema", group: 6, level: 2, parent: "schemas_branch",
+      desc: "Manages investor master data, KYC, contact details and status",
+      details: ["Tables: INVESTOR_MASTER", "PK: INVESTOR_ID", "Attributes: Name, PAN(masked), KYC_Status, Contact", "FK: References to Folios"] },
+    { id: "scheme_schema", name: "Scheme/MF Schema", type: "schema", group: 6, level: 2, parent: "schemas_branch",
+      desc: "Mutual fund scheme master data, AMC details, plan/options",
+      details: ["Tables: SCHEME_MASTER", "PK: SCHEME_ID", "Stores: Scheme Name, AMC, Type, Launch Date"] },
+    { id: "folio_schema", name: "Folio Schema", type: "schema", group: 6, level: 2, parent: "schemas_branch",
+      desc: "Folio/account mapping between investor and schemes",
+      details: ["Tables: FOLIO_MASTER", "PK: FOLIO_ID", "FK: INVESTOR_ID, SCHEME_ID"] },
+    { id: "sip_schema", name: "SIP Schema", type: "schema", group: 6, level: 2, parent: "schemas_branch",
+      desc: "SIP registration, mandates, installment schedules",
+      details: ["Tables: SIP_REGISTRATION, SIP_INSTALLMENTS"] },
+    { id: "lumpsum_schema", name: "Lumpsum Schema", type: "schema", group: 6, level: 2, parent: "schemas_branch",
+      desc: "One-time investment orders and payments" },
+    { id: "withdrawal_schema", name: "Withdrawal Schema", type: "schema", group: 6, level: 2, parent: "schemas_branch",
+      desc: "Redemption requests, eligibility, settlement" },
+    { id: "txn_schema", name: "Transaction Schema", type: "schema", group: 6, level: 2, parent: "schemas_branch",
+      desc: "Central transaction ledger - all confirmed transactions" },
+    { id: "nav_schema", name: "NAV/Valuation Schema", type: "schema", group: 6, level: 2, parent: "schemas_branch",
+      desc: "NAV history, cut-off times, valuation rules" },
+    { id: "holdings_schema", name: "Holdings Schema", type: "schema", group: 6, level: 2, parent: "schemas_branch",
+      desc: "Current unit balances per investor-folio-scheme" },
+    { id: "audit_schema", name: "Audit & Reconciliation", type: "schema", group: 6, level: 2, parent: "schemas_branch",
+      desc: "Audit trail, reconciliation with banks/RTA" },
+    
+    // Investors
+    { id: "investor_master", name: "Investor Master", type: "investor", group: 2, level: 2, parent: "investors_branch",
+      desc: "Central investor registry - single view of investor across all products",
+      details: ["One investor → Many Folios", "One investor → Multiple Schemes"] },
+    { id: "investor_profile", name: "Investor Profile", type: "investor", group: 2, level: 3, parent: "investor_master",
+      desc: "Personal details, KYC status, PAN (masked), contact, status" },
+    { id: "investor_accounts", name: "Investor Accounts", type: "investor", group: 2, level: 3, parent: "investor_master" },
+    { id: "folios", name: "Folios", type: "scheme", group: 3, level: 3, parent: "investor_master",
+      desc: "Folio = Investment account for investor in scheme(s)" },
+    { id: "linked_schemes", name: "Linked MF Schemes", type: "scheme", group: 3, level: 3, parent: "investor_master" },
+    { id: "investment_history", name: "Investment History", type: "investor", group: 2, level: 3, parent: "investor_master" },
+    { id: "current_holdings_inv", name: "Current Holdings", type: "holding", group: 8, level: 3, parent: "investor_master" },
+    { id: "nominee", name: "Nominee Details", type: "investor", group: 2, level: 3, parent: "investor_master" },
+    { id: "statements", name: "Investor Statements", type: "report", group: 10, level: 3, parent: "investor_master" },
+    
+    // SIP Branch
+    { id: "sip_branch", name: "SIP (Systematic Investment)", type: "sip", group: 4, level: 3, parent: "investor_master",
+      desc: "Recurring investments at fixed intervals" },
+    { id: "sip_reg", name: "SIP Registration", type: "sip", group: 4, level: 4, parent: "sip_branch",
+      desc: "SIP setup with mandate, amount, frequency, dates" },
+    { id: "sip_id", name: "SIP ID", type: "sip", group: 4, level: 5, parent: "sip_reg" },
+    { id: "sip_schedule", name: "Installment Schedule", type: "sip", group: 4, level: 5, parent: "sip_reg" },
+    { id: "sip_installments", name: "SIP Installments", type: "sip", group: 4, level: 4, parent: "sip_branch",
+      desc: "Individual installment attempts" },
+    { id: "sip_success", name: "Successful Installments", type: "sip", group: 4, level: 5, parent: "sip_installments" },
+    { id: "sip_failed", name: "Failed Installments", type: "sip", group: 4, level: 5, parent: "sip_installments" },
+    { id: "sip_units", name: "Units Allocated (SIP)", type: "holding", group: 8, level: 5, parent: "sip_installments" },
+    { id: "sip_cancel_pause", name: "Cancel/Pause", type: "sip", group: 4, level: 4, parent: "sip_branch" },
+    
+    // Lumpsum
+    { id: "lumpsum_branch", name: "Lumpsum Investment", type: "lumpsum", group: 5, level: 3, parent: "investor_master" },
+    { id: "lumpsum_order", name: "Lumpsum Order", type: "lumpsum", group: 5, level: 4, parent: "lumpsum_branch" },
+    { id: "lumpsum_payment", name: "Payment Confirmation", type: "lumpsum", group: 5, level: 5, parent: "lumpsum_order" },
+    { id: "lumpsum_nav", name: "NAV Application", type: "holding", group: 8, level: 5, parent: "lumpsum_order" },
+    { id: "lumpsum_units", name: "Units Allocated", type: "holding", group: 8, level: 5, parent: "lumpsum_order" },
+    
+    // Withdrawals
+    { id: "withdrawal_branch", name: "Withdrawals/Redemptions", type: "withdrawal", group: 9, level: 3, parent: "investor_master" },
+    { id: "wd_request", name: "Withdrawal Request", type: "withdrawal", group: 9, level: 4, parent: "withdrawal_branch" },
+    { id: "wd_eligibility", name: "Eligibility Validation", type: "withdrawal", group: 9, level: 5, parent: "wd_request" },
+    { id: "wd_nav", name: "Redemption NAV", type: "holding", group: 8, level: 5, parent: "wd_request" },
+    { id: "wd_units", name: "Units Redeemed", type: "withdrawal", group: 9, level: 5, parent: "wd_request" },
+    { id: "wd_settlement", name: "Settlement", type: "withdrawal", group: 9, level: 5, parent: "wd_request" },
+    
+    // Transactions
+    { id: "txn_ledger", name: "Transaction Ledger", type: "transaction", group: 7, level: 2, parent: "transactions_branch",
+      desc: "Central ledger of ALL confirmed transactions. Orders/Requests tracked separately.",
+      details: ["Order vs Transaction: Request not always completed", "All financial movements logged", "Reconciliation status tracked"] },
+    { id: "txn_sip", name: "SIP Installment Txn", type: "transaction", group: 7, level: 3, parent: "txn_ledger" },
+    { id: "txn_lumpsum", name: "Lumpsum Purchase Txn", type: "transaction", group: 7, level: 3, parent: "txn_ledger" },
+    { id: "txn_redemption", name: "Redemption Txn", type: "transaction", group: 7, level: 3, parent: "txn_ledger" },
+    { id: "txn_switch", name: "Switch In/Out", type: "transaction", group: 7, level: 3, parent: "txn_ledger" },
+    { id: "txn_dividend", name: "Dividend/Distribution", type: "transaction", group: 7, level: 3, parent: "txn_ledger" },
+    { id: "txn_reversal", name: "Reversal/Correction", type: "transaction", group: 7, level: 3, parent: "txn_ledger" },
+    { id: "txn_charges", name: "Fees/Charges", type: "transaction", group: 7, level: 3, parent: "txn_ledger" },
+    
+    // Holdings
+    { id: "holdings_branch", name: "Holdings & Valuation", type: "holding", group: 8, level: 2, parent: "account_book" },
+    { id: "inv_holdings", name: "Investor Holdings", type: "holding", group: 8, level: 3, parent: "holdings_branch" },
+    { id: "folio_holdings", name: "Folio Holdings", type: "holding", group: 8, level: 3, parent: "holdings_branch" },
+    { id: "units_purchased", name: "Units Purchased", type: "holding", group: 8, level: 3, parent: "holdings_branch" },
+    { id: "units_redeemed", name: "Units Redeemed", type: "holding", group: 8, level: 3, parent: "holdings_branch" },
+    { id: "available_units", name: "Available Units", type: "holding", group: 8, level: 3, parent: "holdings_branch",
+      desc: "Opening + Purchases - Redemptions (adjusted)" },
+    { id: "nav_history", name: "NAV History", type: "holding", group: 8, level: 3, parent: "holdings_branch" },
+    { id: "current_valuation", name: "Current Valuation", type: "holding", group: 8, level: 3, parent: "holdings_branch",
+      desc: "Eligible Units × Applicable NAV (conceptual)" },
+    { id: "cost_basis", name: "Cost Basis", type: "holding", group: 8, level: 3, parent: "holdings_branch" },
+    { id: "unrealized_gl", name: "Unrealized Gain/Loss", type: "holding", group: 8, level: 3, parent: "holdings_branch" },
+    
+    // Reports
+    { id: "rpt_portfolio", name: "Portfolio Report", type: "report", group: 10, level: 2, parent: "reports_branch" },
+    { id: "rpt_sip", name: "SIP Performance", type: "report", group: 10, level: 2, parent: "reports_branch" },
+    { id: "rpt_lumpsum", name: "Lumpsum Report", type: "report", group: 10, level: 2, parent: "reports_branch" },
+    { id: "rpt_withdrawal", name: "Withdrawal Report", type: "report", group: 10, level: 2, parent: "reports_branch" },
+    { id: "rpt_daily_txn", name: "Daily Transaction Report", type: "report", group: 10, level: 2, parent: "reports_branch" },
+    { id: "rpt_aum", name: "Scheme-wise AUM", type: "report", group: 10, level: 2, parent: "reports_branch" },
+    { id: "rpt_folio", name: "Folio-wise Holdings", type: "report", group: 10, level: 2, parent: "reports_branch" },
+    { id: "rpt_failed", name: "Failed Transaction Report", type: "report", group: 10, level: 2, parent: "reports_branch" },
+    { id: "rpt_bank_rec", name: "Bank Reconciliation", type: "report", group: 10, level: 2, parent: "reports_branch" },
+    { id: "rpt_nav_rec", name: "NAV Reconciliation", type: "report", group: 10, level: 2, parent: "reports_branch" },
+    { id: "rpt_audit", name: "Audit Trail", type: "report", group: 10, level: 2, parent: "reports_branch" },
+  ],
+  
+  links: [
+    // Root branches
+    { source: "account_book", target: "schemas_branch", label: "contains" },
+    { source: "account_book", target: "investors_branch", label: "contains" },
+    { source: "account_book", target: "transactions_branch", label: "contains" },
+    { source: "account_book", target: "reports_branch", label: "contains" },
+    { source: "account_book", target: "holdings_branch", label: "contains" },
+    
+    // Schemas
+    { source: "schemas_branch", target: "investor_schema", label: "defines" },
+    { source: "schemas_branch", target: "scheme_schema", label: "defines" },
+    { source: "schemas_branch", target: "folio_schema", label: "defines" },
+    { source: "schemas_branch", target: "sip_schema", label: "defines" },
+    { source: "schemas_branch", target: "lumpsum_schema", label: "defines" },
+    { source: "schemas_branch", target: "withdrawal_schema", label: "defines" },
+    { source: "schemas_branch", target: "txn_schema", label: "defines" },
+    { source: "schemas_branch", target: "nav_schema", label: "defines" },
+    { source: "schemas_branch", target: "holdings_schema", label: "defines" },
+    { source: "schemas_branch", target: "audit_schema", label: "defines" },
+    
+    // Investors
+    { source: "investors_branch", target: "investor_master", label: "owns" },
+    { source: "investor_master", target: "investor_profile", label: "has" },
+    { source: "investor_master", target: "investor_accounts", label: "has" },
+    { source: "investor_master", target: "folios", label: "has many" },
+    { source: "investor_master", target: "linked_schemes", label: "linked to" },
+    { source: "investor_master", target: "investment_history", label: "has" },
+    { source: "investor_master", target: "current_holdings_inv", label: "has" },
+    { source: "investor_master", target: "nominee", label: "has" },
+    { source: "investor_master", target: "statements", label: "receives" },
+    
+    // SIP
+    { source: "investor_master", target: "sip_branch", label: "invests via" },
+    { source: "sip_branch", target: "sip_reg", label: "has" },
+    { source: "sip_reg", target: "sip_id", label: "assigned" },
+    { source: "sip_reg", target: "sip_schedule", label: "follows" },
+    { source: "sip_branch", target: "sip_installments", label: "generates" },
+    { source: "sip_installments", target: "sip_success", label: "tracks" },
+    { source: "sip_installments", target: "sip_failed", label: "tracks" },
+    { source: "sip_installments", target: "sip_units", label: "allocates" },
+    { source: "sip_branch", target: "sip_cancel_pause", label: "can" },
+    
+    // Lumpsum
+    { source: "investor_master", target: "lumpsum_branch", label: "invests via" },
+    { source: "lumpsum_branch", target: "lumpsum_order", label: "places" },
+    { source: "lumpsum_order", target: "lumpsum_payment", label: "requires" },
+    { source: "lumpsum_order", target: "lumpsum_nav", label: "uses" },
+    { source: "lumpsum_order", target: "lumpsum_units", label: "allocates" },
+    
+    // Withdrawals
+    { source: "investor_master", target: "withdrawal_branch", label: "redeems via" },
+    { source: "withdrawal_branch", target: "wd_request", label: "submits" },
+    { source: "wd_request", target: "wd_eligibility", label: "validated by" },
+    { source: "wd_request", target: "wd_nav", label: "uses" },
+    { source: "wd_request", target: "wd_units", label: "redeems" },
+    { source: "wd_request", target: "wd_settlement", label: "settles via" },
+    
+    // Transactions
+    { source: "transactions_branch", target: "txn_ledger", label: "maintains" },
+    { source: "txn_ledger", target: "txn_sip", label: "records" },
+    { source: "txn_ledger", target: "txn_lumpsum", label: "records" },
+    { source: "txn_ledger", target: "txn_redemption", label: "records" },
+    { source: "txn_ledger", target: "txn_switch", label: "records" },
+    { source: "txn_ledger", target: "txn_dividend", label: "records" },
+    { source: "txn_ledger", target: "txn_reversal", label: "records" },
+    { source: "txn_ledger", target: "txn_charges", label: "records" },
+    { source: "sip_installments", target: "txn_sip", label: "creates transaction", style: "dashed" },
+    { source: "lumpsum_order", target: "txn_lumpsum", label: "creates transaction", style: "dashed" },
+    { source: "wd_request", target: "txn_redemption", label: "creates transaction", style: "dashed" },
+    
+    // Holdings
+    { source: "holdings_branch", target: "inv_holdings", label: "tracks" },
+    { source: "holdings_branch", target: "folio_holdings", label: "tracks" },
+    { source: "holdings_branch", target: "units_purchased", label: "tracks" },
+    { source: "holdings_branch", target: "units_redeemed", label: "tracks" },
+    { source: "holdings_branch", target: "available_units", label: "calculates" },
+    { source: "holdings_branch", target: "nav_history", label: "uses" },
+    { source: "holdings_branch", target: "current_valuation", label: "computes" },
+    { source: "holdings_branch", target: "cost_basis", label: "tracks" },
+    { source: "holdings_branch", target: "unrealized_gl", label: "computes" },
+    { source: "txn_ledger", target: "holdings_branch", label: "updates holdings", style: "dashed" },
+    
+    // Reports
+    { source: "reports_branch", target: "rpt_portfolio", label: "generates" },
+    { source: "reports_branch", target: "rpt_sip", label: "generates" },
+    { source: "reports_branch", target: "rpt_lumpsum", label: "generates" },
+    { source: "reports_branch", target: "rpt_withdrawal", label: "generates" },
+    { source: "reports_branch", target: "rpt_daily_txn", label: "generates" },
+    { source: "reports_branch", target: "rpt_aum", label: "generates" },
+    { source: "reports_branch", target: "rpt_folio", label: "generates" },
+    { source: "reports_branch", target: "rpt_failed", label: "generates" },
+    { source: "reports_branch", target: "rpt_bank_rec", label: "generates" },
+    { source: "reports_branch", target: "rpt_nav_rec", label: "generates" },
+    { source: "reports_branch", target: "rpt_audit", label: "generates" },
+    { source: "holdings_branch", target: "rpt_portfolio", label: "feeds", style: "dashed" },
+    { source: "txn_ledger", target: "rpt_daily_txn", label: "feeds", style: "dashed" },
+  ]
+};
+
+const colorMap = {
+  0: "#d9b54c", 1: "#a855f7", 2: "#667eea", 3: "#43e97b", 4: "#f093fb", 
+  5: "#4facfe", 6: "#a855f7", 7: "#fbbf24", 8: "#06b6d4", 9: "#fa709a", 10: "#ec4899"
+};
+
+const svg = d3.select("#graph-svg");
+const width = window.innerWidth - 320;
+const height = window.innerHeight;
+svg.attr("width", width).attr("height", height);
+
+const g = svg.append("g");
+const zoom = d3.zoom().on("zoom", (e) => g.attr("transform", e.transform));
+svg.call(zoom);
+
+const simulation = d3.forceSimulation(graphData.nodes)
+  .force("link", d3.forceLink(graphData.links).id(d => d.id).distance(d => d.source.level === 0 ? 120 : 80))
+  .force("charge", d3.forceManyBody().strength(d => d.type === 'root' ? -800 : -300))
+  .force("center", d3.forceCenter(width/2, height/2))
+  .force("collide", d3.forceCollide().radius(d => d.type === 'root' ? 50 : 30));
+
+const link = g.append("g").selectAll("path")
+  .data(graphData.links)
+  .enter().append("path")
+  .attr("class", d => `link ${d.style || ''}`)
+  .attr("stroke", d => d.style === 'dashed' ? "#ff6b6b" : "#d9b54c")
+  .attr("stroke-dasharray", d => d.style === 'dashed' ? "5,5" : "none");
+
+const linkLabel = g.append("g").selectAll("text")
+  .data(graphData.links)
+  .enter().append("text")
+  .attr("class", "link-label")
+  .text(d => d.label);
+
+const node = g.append("g").selectAll("g")
+  .data(graphData.nodes)
+  .enter().append("g")
+  .attr("class", "node")
+  .call(d3.drag()
+    .on("start", dragstarted)
+    .on("drag", dragged)
+    .on("end", dragended));
+
+node.append("circle")
+  .attr("r", d => d.type === 'root' ? 45 : d.type === 'branch' ? 32 : 24)
+  .attr("fill", d => colorMap[d.group])
+  .attr("stroke", "#fff");
+
+node.append("text")
+  .attr("dy", d => d.type === 'root' ? 5 : 4)
+  .attr("text-anchor", "middle")
+  .style("font-size", d => d.type === 'root' ? "11px" : "9px")
+  .text(d => d.name.length > 12 ? d.name.substring(0, 10) + "..." : d.name);
+
+node.on("mouseover", function(event, d) {
+  const tooltip = d3.select("#tooltip");
+  tooltip.style("display", "block")
+    .html(`
+      <h4>${d.name}</h4>
+      <p><strong>Type:</strong> ${d.type.toUpperCase()}</p>
+      <p><strong>Level:</strong> ${d.level}</p>
+      ${d.desc ? `<p><strong>Description:</strong> ${d.desc}</p>` : ''}
+      ${d.details ? `<p><strong>Details:</strong><br>${d.details.map(x => '• ' + x).join('<br>')}</p>` : ''}
+      <p style="color:#ff6b6b; font-size:10px;"><em>Click to explore connections</em></p>
+    `)
+    .style("left", (event.pageX + 10) + "px")
+    .style("top", (event.pageY - 10) + "px");
+})
+.on("mouseout", function() {
+  d3.select("#tooltip").style("display", "none");
+});
+
+simulation.on("tick", () => {
+  link.attr("d", d => {
+    const dx = d.target.x - d.source.x;
+    const dy = d.target.y - d.source.y;
+    const dr = Math.sqrt(dx*dx + dy*dy);
+    return `M${d.source.x},${d.source.y}A${dr},${dr} 0 0,1 ${d.target.x},${d.target.y}`;
+  });
+  linkLabel
+    .attr("x", d => (d.source.x + d.target.x) / 2)
+    .attr("y", d => (d.source.y + d.target.y) / 2)
+    .attr("transform", d => `rotate(${Math.atan2(d.target.y - d.source.y, d.target.x - d.source.x) * 180 / Math.PI}, ${(d.source.x + d.target.x)/2}, ${(d.source.y + d.target.y)/2})`);
+  node.attr("transform", d => `translate(${d.x},${d.y})`);
+});
+
+function dragstarted(event, d) {
+  if (!event.active) simulation.alphaTarget(0.3).restart();
+  d.fx = d.x; d.fy = d.y;
+}
+function dragged(event, d) {
+  d.fx = event.x; d.fy = event.y;
+}
+function dragended(event, d) {
+  if (!event.active) simulation.alphaTarget(0);
+  d.fx = null; d.fy = null;
+}
+
+function resetGraph() {
+  svg.transition().duration(750).call(zoom.transform, d3.zoomIdentity);
+  simulation.alpha(1).restart();
+}
+
+function highlightPath(path) {
+  d3.selectAll(".link").classed("path-highlight", false);
+  d3.selectAll(".node").classed("node-highlight", false);
+  
+  if (path === 'pathA') {
+    const pathNodes = ['investor_master','sip_branch','sip_reg','sip_installments','txn_sip','sip_units','current_holdings_inv','rpt_portfolio'];
+    pathNodes.forEach(id => d3.selectAll(".node").filter(d => d.id === id).classed("node-highlight", true));
+  } else if (path === 'pathB') {
+    const pathNodes = ['investor_master','lumpsum_branch','lumpsum_order','lumpsum_payment','lumpsum_nav','txn_lumpsum','inv_holdings'];
+    pathNodes.forEach(id => d3.selectAll(".node").filter(d => d.id === id).classed("node-highlight", true));
+  } else if (path === 'pathC') {
+    const pathNodes = ['investor_master','withdrawal_branch','wd_request','wd_eligibility','wd_nav','wd_units','txn_redemption','holdings_branch','wd_settlement'];
+    pathNodes.forEach(id => d3.selectAll(".node").filter(d => d.id === id).classed("node-highlight", true));
+  }
+}
+
+function expandAll() {
+  simulation.alpha(0.3).restart();
+}
+function collapseAll() {
+  resetGraph();
+}
+</script>
+</body>
+</html>

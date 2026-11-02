@@ -1,0 +1,35 @@
+# Local credentials and machine-specific settings
+.env
+.env.*
+!.env.example
+!.env.*.example
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.*.example
+
+# Local databases and SQLite journal files
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+
+# Python caches, virtual environments, and logs
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.log
+
+# Frontend dependencies and build output
+node_modules/
+build/
+dist/
+
+# Local working files
+temp_css.txt
+**/.git_backup/

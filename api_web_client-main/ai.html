@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NavDhan AI — NavDhan Console</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <main class="main">
+    <div class="topbar">
+      <h1>NavDhan AI</h1>
+      <span class="stamp" id="roleStamp"></span>
+    </div>
+
+    <div id="alert" class="alert"></div>
+    <div id="aiNotice" class="alert alert-info"></div>
+
+    <div class="tabs" id="aiTabs" role="tablist">
+      <a href="#ask" data-tab="ask" role="tab">Ask your data</a>
+      <a href="#chat" data-tab="chat" role="tab">Assistant</a>
+      <a href="#insights" data-tab="insights" role="tab" id="insightsTab">Insights</a>
+    </div>
+
+    <!-- ===================== ASK ===================== -->
+    <section id="tab-ask" class="ai-panel">
+      <div class="card">
+        <h2>Ask a question about your data</h2>
+        <p class="card-sub">Type it in plain English. NavDhan AI writes a read-only query, runs it, and explains the result.</p>
+        <form id="askForm">
+          <div class="field">
+            <label for="askInput">Your question</label>
+            <textarea id="askInput" maxlength="500" placeholder="e.g. What is the total SIP amount by scheme this year?"></textarea>
+          </div>
+          <div class="chip-row" id="askExamples"></div>
+          <button class="btn btn-gold" type="submit" id="askBtn">Ask</button>
+        </form>
+      </div>
+      <div id="askResult"></div>
+      <div class="card" id="indexCard" style="display:none;">
+        <div class="card-head">
+          <div>
+            <h2>Glossary index (admin)</h2>
+            <p class="card-sub" id="indexMeta"></p>
+          </div>
+          <button class="btn btn-secondary btn-sm" id="reindexBtn" type="button">Re-index glossary</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== CHAT ===================== -->
+    <section id="tab-chat" class="ai-panel" style="display:none;">
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <h2>Assistant</h2>
+            <p class="card-sub">A conversation — it remembers what you asked earlier, so you can follow up ("and only for SIPs?").</p>
+          </div>
+          <button class="btn btn-secondary btn-sm" id="chatReset" type="button">New conversation</button>
+        </div>
+        <div class="chat-log" id="chatLog" aria-live="polite"></div>
+        <form id="chatForm" class="chat-form">
+          <input id="chatInput" maxlength="500" placeholder="Ask anything about investors or transactions…" autocomplete="off" required>
+          <button class="btn btn-gold" type="submit" id="chatBtn">Send</button>
+        </form>
+      </div>
+    </section>
+
+    <!-- ===================== INSIGHTS ===================== -->
+    <section id="tab-insights" class="ai-panel" style="display:none;">
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <h2>Business briefing</h2>
+            <p class="card-sub" id="insightsMeta">Auto-generated from your latest data.</p>
+          </div>
+          <button class="btn btn-secondary btn-sm" id="insightsRefresh" type="button">Refresh</button>
+        </div>
+        <div id="insightsBody" class="skeleton-loading">Loading…</div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+  const authOk = requireAuth();
+  const role = Session.role();
+  document.getElementById("roleStamp").textContent = role;
+  document.getElementById("roleStamp").className = `stamp ${stampClass(role)}`;
+
+  const alertEl = document.getElementById("alert");
+  const canInsights = role === "admin" || role === "manager";
+
+  // ---- helpers --------------------------------------------------------
+  function esc(value) {
+    return String(value ?? "").replace(/[&<>"']/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  function fmtCell(v) {
+    if (v === null || v === undefined) return "—";
+    if (typeof v === "number") return Number.isInteger(v) ? v.toLocaleString("en-IN") : v.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+    return esc(v);
+  }
+
+  function rs(n) {
+    if (n === null || n === undefined) return "—";
+    return "₹" + Number(n).toLocaleString("en-IN", { maximumFractionDigits: 0 });
+  }
+
+  function resultTable(res, maxRows) {
+    if (!res.columns || res.columns.length === 0) return "";
+    const rows = res.rows.slice(0, maxRows || res.rows.length);
+    const head = res.columns.map((c) => `<th>${esc(c)}</th>`).join("");
+    const body = rows.map((r) => `<tr>${r.map((v) => `<td class="${typeof v === "number" ? "mono" : ""}">${fmtCell(v)}</td>`).join("")}</tr>`).join("");
+    const more = res.rows.length > rows.length ? ` · showing first ${rows.length}` : "";
+    const trunc = res.truncated ? " · result capped, narrow your question to see the rest" : "";
+    return `
+      <div class="table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
+      <p class="result-meta">${res.row_count} row${res.row_count === 1 ? "" : "s"}${more}${trunc}</p>`;
+  }
+
+  function sqlBlock(sql) {
+    if (!sql) return "";
+    return `<details class="sql-details"><summary>Show the query that was run</summary><pre class="sql-pre">${esc(sql)}</pre></details>`;
+  }
+
+  function contextBlock(ctx) {
+    if (!ctx) return "";
+    if (ctx.source !== "qdrant" || !ctx.documents.length) {
+      return `<p class="result-meta">Context: plain table schema (glossary search not used).</p>`;
+    }
+    const chips = ctx.documents.map((d) =>
+      `<span class="ctx-chip" title="${esc(d.type)}${d.score != null ? " · relevance " + d.score : ""}">${esc(d.name)}</span>`).join("");
+    return `<details class="sql-details"><summary>Glossary context used (${ctx.documents.length})</summary><div class="ctx-row">${chips}</div></details>`;
+  }
+
+  // ---- tabs -----------------------------------------------------------
+  const tabs = ["ask", "chat", "insights"];
+  function showTab(name) {
+    if (name === "insights" && !canInsights) name = "ask";
+    if (!tabs.includes(name)) name = "ask";
+    tabs.forEach((t) => {
+      document.getElementById(`tab-${t}`).style.display = t === name ? "block" : "none";
+      const link = document.querySelector(`[data-tab="${t}"]`);
+      link.classList.toggle("active", t === name);
+      link.setAttribute("aria-selected", t === name);
+    });
+    if (name === "insights" && !insightsLoaded) loadInsights(false);
+    if (location.hash !== `#${name}`) history.replaceState(null, "", `#${name}`);
+  }
+  document.querySelectorAll("[data-tab]").forEach((a) =>
+    a.addEventListener("click", (e) => { e.preventDefault(); showTab(a.dataset.tab); }));
+
+  window.addEventListener("hashchange", () => showTab(location.hash.slice(1)));
+
+  // ---- ASK ------------------------------------------------------------
+  const EXAMPLES = [
+    "How many investors have each KYC status?",
+    "Total purchase amount by scheme",
+    "Monthly SIP amount for the last 6 months",
+    "Top 10 investors by net investment",
+  ];
+  const askInput = document.getElementById("askInput");
+  const askResult = document.getElementById("askResult");
+
+  function setExamples(list) {
+    const el = document.getElementById("askExamples");
+    el.innerHTML = list.map((q) => `<button type="button" class="chip">${esc(q)}</button>`).join("");
+    el.querySelectorAll(".chip").forEach((b) => b.addEventListener("click", () => {
+      askInput.value = b.textContent; askInput.focus();
+    }));
+  }
+  setExamples(EXAMPLES);
+
+  document.getElementById("askForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    hideAlert(alertEl);
+    const question = askInput.value.trim();
+    if (question.length < 3) return;
+    const btn = document.getElementById("askBtn");
+    btn.disabled = true; btn.textContent = "Thinking…";
+    askResult.innerHTML = `<div class="skeleton-loading">Writing and running the query…</div>`;
+    try {
+      const res = await apiFetch("/ai/ask", { method: "POST", body: { question } });
+      askResult.innerHTML = `
+        <div class="card">
+          <p class="answer-text">${esc(res.answer)}</p>
+          ${resultTable(res, 100)}
+          ${sqlBlock(res.sql)}
+          ${contextBlock(res.context)}
+          <p class="result-meta">${(res.elapsed_ms / 1000).toFixed(1)}s</p>
+        </div>`;
+    } catch (err) {
+      askResult.innerHTML = "";
+      showAlert(alertEl, err.message);
+    } finally {
+      btn.disabled = false; btn.textContent = "Ask";
+    }
+  });
+  askInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) document.getElementById("askForm").requestSubmit();
+  });
+
+  // ---- CHAT -----------------------------------------------------------
+  let chatHistory = []; // [{role, content, sql?}]
+  const chatLog = document.getElementById("chatLog");
+
+  function addBubble(role, html) {
+    const div = document.createElement("div");
+    div.className = `bubble bubble-${role}`;
+    div.innerHTML = html;
+    chatLog.appendChild(div);
+    chatLog.scrollTop = chatLog.scrollHeight;
+    return div;
+  }
+
+  function chatWelcome() {
+    chatLog.innerHTML = "";
+    addBubble("assistant", "Hi! Ask me about investors, KYC status, or transactions — amounts, schemes, dates. I can also take follow-up questions.");
+  }
+  chatWelcome();
+
+  document.getElementById("chatReset").addEventListener("click", () => { chatHistory = []; chatWelcome(); });
+
+  document.getElementById("chatForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    hideAlert(alertEl);
+    const input = document.getElementById("chatInput");
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = "";
+    const btn = document.getElementById("chatBtn");
+    btn.disabled = true;
+
+    addBubble("user", esc(text));
+    chatHistory.push({ role: "user", content: text });
+    const pending = addBubble("assistant", `<span class="typing">Thinking…</span>`);
+
+    try {
+      const res = await apiFetch("/ai/chat", { method: "POST", body: { messages: chatHistory } });
+      pending.innerHTML = `${esc(res.answer)}${res.mode === "sql" ? resultTable(res, 10) + sqlBlock(res.sql) + contextBlock(res.context) : ""}`;
+      chatHistory.push({ role: "assistant", content: res.answer, sql: res.sql || undefined });
+    } catch (err) {
+      pending.remove();
+      chatHistory.pop(); // the failed question shouldn't pollute later turns
+      showAlert(alertEl, err.message);
+    } finally {
+      btn.disabled = false;
+      input.focus();
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+  });
+
+  // ---- INSIGHTS -------------------------------------------------------
+  let insightsLoaded = false;
+
+  function monthChart(trend) {
+    if (!trend || trend.length === 0) return "";
+    const max = Math.max(...trend.map((t) => Math.max(t.inflow, t.outflow)), 1);
+    const cols = trend.map((t) => `
+      <div class="mchart-col" title="${esc(t.month)}: in ${rs(t.inflow)}, out ${rs(t.outflow)}">
+        <div class="mchart-bars">
+          <span class="mbar mbar-in" style="height:${(t.inflow / max) * 100}%"></span>
+          <span class="mbar mbar-out" style="height:${(t.outflow / max) * 100}%"></span>
+        </div>
+        <div class="mchart-label">${esc(t.month.slice(2))}</div>
+      </div>`).join("");
+    return `
+      <h3 class="sub-h">Monthly inflow vs outflow</h3>
+      <div class="mchart">${cols}</div>
+      <p class="result-meta"><span class="dot dot-in"></span>Inflow (purchases + SIPs) &nbsp; <span class="dot dot-out"></span>Outflow (redemptions)</p>`;
+  }
+
+  function renderInsights(data) {
+    const m = data.metrics || {};
+    const o = m.overview || {};
+    const n = data.narrative;
+    let html = "";
+
+    if (n && n.headline) html += `<p class="answer-text headline">${esc(n.headline)}</p>`;
+    if (data.narrative_error) html += `<div class="alert show alert-info">The written summary isn't available (${esc(data.narrative_error)}). The numbers below are still current.</div>`;
+
+    html += `<div class="kpis">
+      <div class="kpi"><div class="kpi-label">Investors</div><div class="kpi-value mono">${fmtCell(o.total_investors)}</div></div>
+      <div class="kpi"><div class="kpi-label">Transactions</div><div class="kpi-value mono">${fmtCell(o.total_transactions)}</div></div>
+      <div class="kpi"><div class="kpi-label">Total inflow</div><div class="kpi-value mono">${rs(o.total_inflow)}</div></div>
+      <div class="kpi"><div class="kpi-label">Total outflow</div><div class="kpi-value mono">${rs(o.total_outflow)}</div></div>
+      <div class="kpi"><div class="kpi-label">Net investment</div><div class="kpi-value mono">${rs(o.net_investment)}</div></div>
+    </div>`;
+
+    if (n && Array.isArray(n.insights)) {
+      html += `<div class="insight-grid">` + n.insights.map((i) => `
+        <div class="insight insight-${["positive", "warning"].includes(i.tone) ? i.tone : "neutral"}">
+          <div class="insight-title">${esc(i.title)}</div>
+          <div>${esc(i.detail)}</div>
+        </div>`).join("") + `</div>`;
+    }
+
+    html += monthChart(m.monthly_trend);
+
+    const mix = m.txn_type_mix || [];
+    if (mix.length) {
+      html += `<h3 class="sub-h">Transaction mix</h3>` + resultTable({
+        columns: ["type", "transactions", "total amount"],
+        rows: mix.map((r) => [r.txn_type, r.transactions, r.total_amount]),
+        row_count: mix.length, truncated: false,
+      });
+    }
+    const topS = m.top_schemes || [];
+    if (topS.length) {
+      html += `<h3 class="sub-h">Top schemes by net investment</h3>` + resultTable({
+        columns: ["scheme", "transactions", "net investment"],
+        rows: topS.map((r) => [r.scheme_id, r.transactions, r.net_investment]),
+        row_count: topS.length, truncated: false,
+      });
+    }
+    const topI = m.top_investors || [];
+    if (topI.length) {
+      html += `<h3 class="sub-h">Top investors by net investment</h3>` + resultTable({
+        columns: ["investor", "name", "net investment", "transactions"],
+        rows: topI.map((r) => [r.investor_id, r.name, r.net_investment, r.transactions]),
+        row_count: topI.length, truncated: false,
+      });
+    }
+
+    if (n && Array.isArray(n.suggested_questions) && n.suggested_questions.length) {
+      html += `<h3 class="sub-h">Dig deeper</h3><div class="chip-row" id="suggested">` +
+        n.suggested_questions.map((q) => `<button type="button" class="chip">${esc(q)}</button>`).join("") + `</div>`;
+    }
+
+    document.getElementById("insightsBody").className = "";
+    document.getElementById("insightsBody").innerHTML = html;
+    document.getElementById("insightsMeta").textContent =
+      `Generated ${new Date(data.generated_at).toLocaleString("en-IN")}${data.cached ? " (cached)" : ""}.`;
+
+    document.querySelectorAll("#suggested .chip").forEach((b) => b.addEventListener("click", () => {
+      askInput.value = b.textContent; showTab("ask"); askInput.focus();
+    }));
+  }
+
+  async function loadInsights(refresh) {
+    const body = document.getElementById("insightsBody");
+    body.className = "skeleton-loading";
+    body.textContent = refresh ? "Refreshing… this can take a few seconds." : "Loading…";
+    hideAlert(alertEl);
+    try {
+      const data = await apiFetch(`/ai/insights${refresh ? "?refresh=true" : ""}`);
+      insightsLoaded = true;
+      renderInsights(data);
+    } catch (err) {
+      body.textContent = "Could not load insights.";
+      showAlert(alertEl, err.message);
+    }
+  }
+  document.getElementById("insightsRefresh").addEventListener("click", () => loadInsights(true));
+
+  // ---- admin: glossary index ------------------------------------------
+  function showIndexInfo(q) {
+    if (role !== "admin" || !q || !q.enabled) return;
+    document.getElementById("indexCard").style.display = "block";
+    document.getElementById("indexMeta").textContent = !q.reachable
+      ? "Qdrant is not reachable. Questions still work using the plain table schema."
+      : q.indexed ? `${q.documents} glossary entries indexed in "${q.collection}".`
+                  : "Nothing indexed yet. It indexes automatically on the first question, or click Re-index.";
+  }
+  document.getElementById("reindexBtn").addEventListener("click", async (e) => {
+    const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Indexing…";
+    hideAlert(alertEl);
+    try {
+      const r = await apiFetch("/ai/reindex", { method: "POST" });
+      showIndexInfo({ enabled: true, reachable: true, indexed: true, documents: r.documents, collection: r.collection });
+      showAlert(alertEl, `Indexed ${r.documents} glossary entries.`, "success");
+    } catch (err) { showAlert(alertEl, err.message); }
+    finally { btn.disabled = false; btn.textContent = "Re-index glossary"; }
+  });
+
+  // ---- init -----------------------------------------------------------
+  async function init() {
+    renderSidebar("ai.html");
+    if (!canInsights) document.getElementById("insightsTab").style.display = "none";
+    try {
+      const status = await apiFetch("/ai/status");
+      const notice = document.getElementById("aiNotice");
+      if (!status.configured) {
+        showAlert(notice, "NavDhan AI isn't configured on the server yet (GROQ_API_KEY is missing). Questions will not work until it is set.", "info");
+      } else if (status.qdrant && status.qdrant.enabled && !status.qdrant.reachable) {
+        showAlert(notice, "The glossary search (Qdrant) is not reachable, so answers use the plain table schema and may be less accurate.", "info");
+      } else if (status.restricted_columns.length) {
+        showAlert(notice, `For privacy, answers can't include: ${status.restricted_columns.join(", ")}. Admins can see these.`, "info");
+      }
+      showIndexInfo(status.qdrant);
+    } catch (_) { /* non-critical */ }
+    showTab((location.hash || "#ask").slice(1));
+  }
+
+  if (authOk) init();
+</script>
+</body>
+</html>
